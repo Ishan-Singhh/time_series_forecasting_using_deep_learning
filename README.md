@@ -85,10 +85,10 @@ COMPLETE WORKFLOW
                        ▼
                Error Analysis
                        │
- Peak vs Off-Peak
- Rain vs Clear
- Weekday vs Weekend
- Different Routes
+            Peak vs Off-Peak
+            Rain vs Clear
+           Weekday vs Weekend
+            Different Routes
                        │
                        ▼
              Figures & Tables
@@ -98,99 +98,90 @@ COMPLETE WORKFLOW
 
 
 
-
-
-
-
-
-
-
-
-
 PROJECT STRUCTURE
 
 
-Bus-Travel-Time-Prediction/
+     Bus-Travel-Time-Prediction/
 
-│
-├── data/
-│   ├── raw/
-│   │     gtfs_static/
-│   │     gtfs_rt/
-│   │     weather/
-│   │     traffic/
-│   │     calendar/
-│   │
-│   ├── interim/
-│   │
-│   ├── processed/
-│   │
-│   └── graph/
-│
-├── notebooks/
-│   │
-│   ├── 01_exploration.ipynb
-│   ├── 02_feature_analysis.ipynb
-│   └── 03_visualization.ipynb
-│
-├── src/
-│
-│   ├── preprocessing/
-│   │     load_data.py
-│   │     clean_data.py
-│   │     synchronize.py
-│   │     map_matching.py
-│   │
-│   ├── features/
-│   │     temporal.py
-│   │     spatial.py
-│   │     operational.py
-│   │     weather.py
-│   │     traffic.py
-│   │     calendar.py
-│   │     ridership.py
-│   │
-│   ├── graph/
-│   │     graph_builder.py
-│   │     node_features.py
-│   │     edge_features.py
-│   │
-│   ├── models/
-│   │     baseline.py
-│   │     random_forest.py
-│   │     xgboost.py
-│   │     lstm.py
-│   │     gat.py
-│   │
-│   ├── training/
-│   │     train.py
-│   │     validate.py
-│   │     test.py
-│   │
-│   ├── evaluation/
-│   │     metrics.py
-│   │     plots.py
-│   │     ablation.py
-│   │     error_analysis.py
-│   │
-│   └── utils/
-│         config.py
-│         logger.py
-│         helper.py
-│
-├── models/
-│
-├── results/
-│     metrics.csv
-│     predictions.csv
-│
-├── figures/
-│
-├── experiments/
-│     experiment_log.xlsx
-│
-├── main.py
-│
-├── requirements.txt
-│
-└── README.md
+    │
+    ├── data/
+    │   ├── raw/
+    │   │     gtfs_static/
+    │   │     gtfs_rt/
+    │   │     weather/
+    │   │     traffic/
+    │   │     calendar/
+    │   │
+    │   ├── interim/
+    │   │
+    │   ├── processed/
+    │   │
+    │   └── graph/
+    │
+    ├── notebooks/
+    │   │
+    │   ├── 01_exploration.ipynb
+    │   ├── 02_feature_analysis.ipynb
+    │   └── 03_visualization.ipynb
+    │
+    ├── src/
+    │
+    │   ├── preprocessing/
+    │   │     load_data.py
+    │   │     clean_data.py
+    │   │     synchronize.py
+    │   │     map_matching.py
+    │   │
+    │   ├── features/
+    │   │     temporal.py
+    │   │     spatial.py
+    │   │     operational.py
+    │   │     weather.py
+    │   │     traffic.py
+    │   │     calendar.py
+    │   │     ridership.py
+    │   │
+    │   ├── graph/
+    │   │     graph_builder.py
+    │   │     node_features.py
+    │   │     edge_features.py
+    │   │
+    │   ├── models/
+    │   │     baseline.py
+    │   │     random_forest.py
+    │   │     xgboost.py
+    │   │     lstm.py
+    │   │     gat.py
+    │   │
+    │   ├── training/
+    │   │     train.py
+    │   │     validate.py
+    │   │     test.py
+    │   │
+    │   ├── evaluation/
+    │   │     metrics.py
+    │   │     plots.py
+    │   │     ablation.py
+    │   │     error_analysis.py
+    │   │
+    │   └── utils/
+    │         config.py
+    │         logger.py
+    │         helper.py
+    │
+    ├── models/
+    │
+    ├── results/
+    │     metrics.csv
+    │     predictions.csv
+    │
+    ├── figures/
+    │
+    ├── experiments/
+    │     experiment_log.xlsx
+    │
+    ├── main.py
+    │
+    ├── requirements.txt
+    │
+    └── README.md
