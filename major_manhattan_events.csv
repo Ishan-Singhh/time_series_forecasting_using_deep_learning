@@ -1,0 +1,12 @@
+event_name,event_date,start_time,end_time,borough,event_type,area_desc,lat,lon
+St. Patrick's Day Parade,2026-03-17,11:00,16:30,Manhattan,Parade,"5th Ave, 44th St to 79th St",40.7647,-73.972
+Easter Parade,2026-04-05,10:00,16:00,Manhattan,Parade,"5th Ave, 49th St to 57th St",40.7614,-73.9776
+Puerto Rican Day Parade,2026-06-14,11:00,17:00,Manhattan,Parade,"5th Ave, 44th St to 86th St",40.7724,-73.964
+NYC Pride March,2026-06-28,12:00,18:00,Manhattan,Parade,"5th Ave (25th St) to Christopher St, Greenwich Village",40.739,-73.997
+Fleet Week / SAIL250,2026-07-03,08:00,20:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
+Fleet Week / SAIL250,2026-07-04,08:00,22:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
+Macy's 4th of July Fireworks,2026-07-04,21:25,22:00,Manhattan,Fireworks / large public gathering,East River / Hudson River viewing areas,40.7484,-73.9705
+Fleet Week / SAIL250,2026-07-05,08:00,20:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
+Fleet Week / SAIL250,2026-07-06,08:00,20:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
+Fleet Week / SAIL250,2026-07-07,08:00,20:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
+Fleet Week / SAIL250,2026-07-08,08:00,20:00,Manhattan,Multi-day maritime event,Hudson River piers / Manhattan waterfront (through July 8),40.7654,-74.0021
