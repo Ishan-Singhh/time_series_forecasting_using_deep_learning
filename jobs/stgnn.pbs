@@ -1,0 +1,30 @@
+#PBS -N bus_eta_stgnn
+#PBS -l select=1:ncpus=10:ngpus=1:mem=28gb,walltime=24:00:00
+#PBS -l place=scatter:shared
+#PBS -q gpu
+#PBS -j oe
+#
+# Neural models (2x2 ablation: graph / no graph x with / without MTA input), then
+# evaluation of everything. Needs `python -m bus_eta.models.stgnn_data` first.
+#   qsub jobs/stgnn.pbs
+#   qsub -v VARIANTS="stgnn_mta",SEED=1,EPOCHS=10,EVAL=1 jobs/stgnn.pbs
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# GPUs are shared with other users: take the one with the most free memory.
+export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1 | cut -d, -f1)
+mkdir -p jobs/logs
+LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
+{
+  echo "node $(hostname), NCPUS=${NCPUS}, GPU ${CUDA_VISIBLE_DEVICES}"; nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
+  for v in ${VARIANTS:-stgnn_mta seq_mta stgnn_no_mta seq_no_mta}; do
+    flags=""
+    [[ $v == seq_* ]] && flags="$flags --no-graph"
+    [[ $v == *_no_mta ]] && flags="$flags --no-mta"
+    python -m bus_eta.models.stgnn --name "$v" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 $flags || exit 1
+  done
+  [[ -n "$EVAL" ]] && python -m bus_eta.evaluate --name main
+} > "$LOG" 2>&1
+echo "exit code $? -- log: $LOG"

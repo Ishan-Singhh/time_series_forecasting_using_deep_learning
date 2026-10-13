@@ -1,5 +1,14 @@
-raw
-models
+/raw
+/models
 processed.zip
 raw.rar
 raw/processed_gtfs
+data/
+*.tmp
+*.egg-info/
+__pycache__/
+jobs/logs/
+# PBS job stdout (logs are in jobs/logs/)
+*.o[0-9]*
+# reference papers are copyrighted; keep local only
+research papers/

@@ -1,0 +1,23 @@
+#PBS -N bus_eta_lgbm
+#PBS -l select=1:ncpus=40:mem=200gb,walltime=24:00:00
+#PBS -q workq
+#PBS -j oe
+#
+# Baselines + both LightGBM variants + evaluation. Submit from the repo root:
+#   qsub jobs/lgbm.pbs
+#   qsub -v TRAIN_FRAC=0.2 jobs/lgbm.pbs
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1
+mkdir -p jobs/logs
+LOG="jobs/logs/lgbm_${PBS_JOBID%%.*}.log"
+F="--train-frac ${TRAIN_FRAC:-0.05}"
+{
+  echo "node $(hostname), NCPUS=${NCPUS}"
+  python -m bus_eta.models.baselines &&
+  python -m bus_eta.models.lgbm --name lgbm_no_mta $F &&
+  python -m bus_eta.models.lgbm --name lgbm_mta --use-mta $F &&
+  python -m bus_eta.evaluate --name main
+} > "$LOG" 2>&1
+echo "exit code $? -- log: $LOG"

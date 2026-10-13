@@ -1,0 +1,24 @@
+[project]
+name = "bus_eta"
+version = "0.1.0"
+description = "Multi-step bus arrival time prediction on the Manhattan MTA bus network"
+requires-python = ">=3.11"
+dependencies = [
+    "polars>=1.20",
+    "pyarrow",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "lightgbm",
+    "requests",
+    "shapely>=2.0",
+    "tqdm",
+    "torch",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

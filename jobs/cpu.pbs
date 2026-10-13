@@ -1,0 +1,18 @@
+#PBS -N bus_eta_cpu
+#PBS -l select=1:ncpus=40:mem=200gb,walltime=24:00:00
+#PBS -q workq
+#PBS -j oe
+#
+# Run any bus_eta module on a 40-core CPU node. Modules size their worker pools from
+# NCPUS (set by PBS). Submit from the repo root:
+#
+#   qsub -v MOD=arrivals,ARGS="--start 2026-03-01 --end 2026-10-11" jobs/cpu.pbs
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1
+mkdir -p jobs/logs
+LOG="jobs/logs/${MOD}_${PBS_JOBID%%.*}.log"
+echo "node $(hostname), NCPUS=${NCPUS}" > "$LOG"
+python -m "bus_eta.${MOD}" ${ARGS} >> "$LOG" 2>&1
+echo "exit code $? -- log: $LOG"
