@@ -33,6 +33,10 @@ NUMERIC_BASE = [
     "temp_c", "precip_mm", "snow_cm", "wind_kmh",
 ]
 NUMERIC_MTA = ["mta", "mta_minus_rt"]
+NUMERIC_SCHOOL = ["is_school_day"]
+# physical attributes of the path from stop k to stop k+h (segment_attrs.py)
+NUMERIC_ATTRS = ["path_signals", "path_signals_per_km", "path_lane_share", "path_lane_active_share"]
+GRAPH = INTERIM / "graph"
 
 
 def sample_files(split: str) -> list[str]:
@@ -51,7 +55,50 @@ def to_long(wide: pl.LazyFrame) -> pl.LazyFrame:
     return pl.concat(parts, how="vertical_relaxed")
 
 
-def load(split: str, issue_frac: float = 1.0, seed: int = 0) -> pl.DataFrame:
+def stop_segments() -> pl.LazyFrame:
+    """(trip_id, stop_idx) -> corridor segment node used to reach that stop."""
+    st = pl.scan_parquet(INTERIM / "static" / "stop_times.parquet").select("trip_id", "stop_idx", "stop_id")
+    nodes = pl.scan_parquet(GRAPH / "nodes.parquet").select("node", "from_stop", "to_stop")
+    return (st.sort("trip_id", "stop_idx")
+            .with_columns(pl.col("stop_id").shift(1).over("trip_id").alias("from_stop"))
+            .join(nodes, left_on=["from_stop", "stop_id"], right_on=["from_stop", "to_stop"])
+            .select("trip_id", "stop_idx", pl.col("node").cast(pl.Int64)))
+
+
+def add_path_attrs(long: pl.LazyFrame) -> pl.LazyFrame:
+    """Signals and bus lanes summed over the segments from stop k to stop k+h. Bus-lane
+    share "active" counts only lanes in force at the issue hour (part-time lanes)."""
+    import numpy as np  # local: only needed for the lane profile
+
+    attrs = pl.scan_parquet(GRAPH / "node_attrs.parquet").select(
+        pl.col("node").cast(pl.Int64), "seg_len_m", "n_signals",
+        (pl.col("lane_ded_frac") + pl.col("lane_shared_frac")).clip(upper_bound=1.0).alias("lane_frac"))
+    active = np.load(GRAPH / "node_lane_active.npy")
+    act = pl.DataFrame({"node": np.repeat(np.arange(active.shape[0]), 168),
+                        "how": np.tile(np.arange(168), active.shape[0]).astype(np.int16),
+                        "lane_active": active.reshape(-1)}).lazy()
+    local = pl.from_epoch(pl.col("t_issue").cast(pl.Int64), time_unit="s").dt.replace_time_zone("UTC") \
+        .dt.convert_time_zone(TIMEZONE)
+    issue = ["trip_id", "start_date", "k"]
+    cum = lambda e: e.fill_null(0).cum_sum().over(issue, order_by="h")  # noqa: E731
+    path_len = cum(pl.col("seg_len_m")).clip(lower_bound=1.0)
+    return (
+        long.with_columns((pl.col("k") + pl.col("h")).cast(pl.Int32).alias("stop_idx"),
+                          ((local.dt.weekday() - 1) * 24 + local.dt.hour()).cast(pl.Int16).alias("how"))
+        .join(stop_segments().with_columns(pl.col("stop_idx").cast(pl.Int32)), on=["trip_id", "stop_idx"], how="left")
+        .join(attrs, on="node", how="left")
+        .join(act, on=["node", "how"], how="left")
+        .with_columns(
+            cum(pl.col("n_signals")).alias("path_signals"),
+            (cum(pl.col("n_signals")) / path_len * 1000).alias("path_signals_per_km"),
+            (cum(pl.col("lane_frac") * pl.col("seg_len_m")) / path_len).alias("path_lane_share"),
+            (cum(pl.col("lane_active") * pl.col("seg_len_m")) / path_len).alias("path_lane_active_share"),
+        )
+        .drop("stop_idx", "how", "node", "seg_len_m", "n_signals", "lane_frac", "lane_active")
+    )
+
+
+def load(split: str, issue_frac: float = 1.0, seed: int = 0, attrs: bool = False) -> pl.DataFrame:
     """Long table for a split: one row per (issue, horizon) with an observed target."""
     wide = pl.scan_parquet(sample_files(split))
     # two vehicles occasionally report the same trip_id; such issues are ambiguous, drop them
@@ -68,11 +115,14 @@ def load(split: str, issue_frac: float = 1.0, seed: int = 0) -> pl.DataFrame:
         seed += 101  # subsample with a hash independent of the scored-issue hash
     if issue_frac < 1.0:
         wide = wide.filter((key.hash(seed) % 1_000_000) < int(issue_frac * 1_000_000))
-    long = to_long(wide).filter(pl.col("y").is_not_null())
+    long = to_long(wide)
+    if attrs:  # needs every horizon, observed or not, for the cumulative sums
+        long = add_path_attrs(long)
+    long = long.filter(pl.col("y").is_not_null())
 
     weather = pl.read_parquet(CONTEXT / "weather_hourly.parquet").lazy()
     calendar = pl.read_parquet(CONTEXT / "calendar.parquet").lazy().select(
-        "service_date", "is_holiday", "n_major_events")
+        "service_date", "is_holiday", "n_major_events", pl.col("is_school_day").cast(pl.Int8))
     local = pl.from_epoch(pl.col("t_issue").cast(pl.Int64), time_unit="s").dt.replace_time_zone("UTC") \
         .dt.convert_time_zone(TIMEZONE)
     long = (
@@ -96,5 +146,6 @@ def load(split: str, issue_frac: float = 1.0, seed: int = 0) -> pl.DataFrame:
     return long.collect(engine="streaming")
 
 
-def feature_columns(use_mta: bool) -> list[str]:
-    return CATEGORICAL + NUMERIC_BASE + (NUMERIC_MTA if use_mta else [])
+def feature_columns(use_mta: bool, school: bool = False, attrs: bool = False) -> list[str]:
+    return (CATEGORICAL + NUMERIC_BASE + (NUMERIC_MTA if use_mta else []) + (NUMERIC_SCHOOL if school else [])
+            + (NUMERIC_ATTRS if attrs else []))

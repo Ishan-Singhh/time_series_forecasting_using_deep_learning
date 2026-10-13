@@ -43,16 +43,18 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--rounds", type=int, default=20000, help="cap; early stopping on val decides")
     p.add_argument("--drop", nargs="*", default=[], help="features to remove (ablation)")
+    p.add_argument("--school", action="store_true", help="add the NYC public-school day flag")
+    p.add_argument("--attrs", action="store_true", help="add path signals / bus-lane attributes")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--split", choices=["chrono", "random"], default="chrono",
                    help="random = issues of all months shuffled into train/val (pitfall experiment)")
     args = p.parse_args()
 
-    cols = [c for c in feature_columns(args.use_mta) if c not in args.drop]
+    cols = [c for c in feature_columns(args.use_mta, args.school, args.attrs) if c not in args.drop]
     cats = [c for c in CATEGORICAL if c in cols]
     tr, va = ("train", "val") if args.split == "chrono" else ("random_train", "random_val")
-    train = load(tr, issue_frac=args.train_frac, seed=args.seed)
-    val = load(va, issue_frac=args.val_frac if args.split == "chrono" else 1.0, seed=args.seed)
+    train = load(tr, issue_frac=args.train_frac, seed=args.seed, attrs=args.attrs)
+    val = load(va, issue_frac=args.val_frac if args.split == "chrono" else 1.0, seed=args.seed, attrs=args.attrs)
     if args.holdout_routes:  # unseen route_id / stop_id become missing at test (replace_strict default)
         train = train.filter(~pl.col("route_id").is_in(args.holdout_routes))
         val = val.filter(~pl.col("route_id").is_in(args.holdout_routes))
@@ -81,7 +83,7 @@ def main() -> None:
     (MODELS / f"{args.name}.json").write_text(json.dumps({"features": cols, "cat_maps": cat_maps,
                                                           "args": vars(args)}))
 
-    test = load("test", issue_frac=EVAL_FRAC)
+    test = load("test", issue_frac=EVAL_FRAC, attrs=args.attrs)
     overlap = test.select(issue).unique().join(train_issues, on=issue).height
     assert overlap == 0, f"{overlap} scored test issues were also trained on"
     pred = test["rt"].to_numpy() + booster.predict(encode(test, cols, cat_maps), num_threads=n_cpus())

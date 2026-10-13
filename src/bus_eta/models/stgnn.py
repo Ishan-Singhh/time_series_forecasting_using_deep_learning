@@ -45,11 +45,12 @@ WINDOW = 12          # 1 hour of 5-min bins
 RESIDUAL_SCALE = 60.0
 MAX_BINS_PER_BATCH = 16  # graph is encoded once per bin; night bins are sparse, so cap bins too
 MTA_COLS = ("mta", "has_mta")
+ATTR_COLS = ("seg_len_m", "n_signals", "lane_frac", "lane_active")  # nn_v2 token attributes
 
 
 # ---------------------------------------------------------------- data
 class Split:
-    def __init__(self, name: str, drop_mta: bool, tok_names: list[str]):
+    def __init__(self, name: str, drop_mta: bool, tok_names: list[str], drop_attrs: bool = False):
         z = np.load(NN / f"{name}.npz")
         self.bin = torch.from_numpy(z["bin"].astype(np.int64))
         self.route = torch.from_numpy(z["route"].astype(np.int64))
@@ -58,6 +59,8 @@ class Split:
         tok_x = z["tok_x"].copy()
         if drop_mta:
             tok_x[..., [tok_names.index(c) for c in MTA_COLS]] = 0.0
+        if drop_attrs:
+            tok_x[..., [tok_names.index(c) for c in ATTR_COLS if c in tok_names]] = 0.0
         self.tok_x = torch.from_numpy(tok_x)
         self.tok_valid = torch.from_numpy(z["tok_valid"])
         self.tok_node = torch.from_numpy(z["tok_node"].astype(np.int64))
@@ -188,19 +191,28 @@ class GraphLayer(nn.Module):
         out = self.proj[0](h)
         for proj, s in zip(self.proj[1:], sparse_supports):
             out = out + proj(torch.sparse.mm(s, flat).reshape(n, nb, d).transpose(0, 1))
-        out = out + self.proj[-1](torch.einsum("nm,bmd->bnd", adaptive, h))
+        if adaptive is not None:
+            out = out + self.proj[-1](torch.einsum("nm,bmd->bnd", adaptive, h))
         return self.norm(h + self.drop(F.gelu(out)))
 
 
 class GraphEncoder(nn.Module):
-    def __init__(self, n_nodes, d, n_layers, dropout, supports):
+    def __init__(self, n_nodes, d, n_layers, dropout, supports, node_feats=None):
+        """node_feats (N, F) given = inductive variant: segments are described by their
+        physical attributes instead of learned per-segment vectors, and there is no learned
+        adaptive adjacency, so the encoder transfers to segments never seen in training."""
         super().__init__()
         self.supports = supports
         self.inp = nn.Linear(4, d)
         self.gru = nn.GRU(d, d, batch_first=True)
-        self.node_emb = nn.Parameter(torch.randn(n_nodes, d) * 0.02)
-        self.adp_src = nn.Parameter(torch.randn(n_nodes, 16) * 0.1)
-        self.adp_dst = nn.Parameter(torch.randn(n_nodes, 16) * 0.1)
+        self.inductive = node_feats is not None
+        if self.inductive:
+            self.register_buffer("node_feats", node_feats)
+            self.feat_proj = nn.Linear(node_feats.shape[1], d)
+        else:
+            self.node_emb = nn.Parameter(torch.randn(n_nodes, d) * 0.02)
+            self.adp_src = nn.Parameter(torch.randn(n_nodes, 16) * 0.1)
+            self.adp_dst = nn.Parameter(torch.randn(n_nodes, 16) * 0.1)
         self.layers = nn.ModuleList([GraphLayer(d, len(supports) + 1, dropout) for _ in range(n_layers)])
 
     @torch.autocast("cuda", enabled=False)  # sparse mm / GRU in fp32; this block is small
@@ -209,8 +221,12 @@ class GraphEncoder(nn.Module):
         nb, w, n, _ = x.shape
         h = self.inp(x).permute(0, 2, 1, 3).reshape(nb * n, w, -1)
         _, hn = self.gru(h)
-        h = hn[-1].view(nb, n, -1) + self.node_emb
-        adaptive = torch.softmax(F.relu(self.adp_src @ self.adp_dst.T), dim=1)
+        if self.inductive:
+            h = hn[-1].view(nb, n, -1) + self.feat_proj(self.node_feats)
+            adaptive = None
+        else:
+            h = hn[-1].view(nb, n, -1) + self.node_emb
+            adaptive = torch.softmax(F.relu(self.adp_src @ self.adp_dst.T), dim=1)
         for layer in self.layers:
             h = layer(h, self.supports, adaptive)
         return h                                                      # (nb, N, d)
@@ -323,17 +339,26 @@ class GWNetEncoder(nn.Module):
 ENCODERS = ("ours", "dcrnn", "gwnet")
 
 
-def make_encoder(kind, n_nodes, d, dropout, supports):
+def load_node_feats(device) -> torch.Tensor:
+    """Standardised static segment attributes (segment_attrs.py) for the inductive encoder."""
+    a = pl.read_parquet(GRAPH / "node_attrs.parquet").sort("node")
+    x = a.select("seg_len_m", "n_signals", "signals_per_km", "lane_ded_frac", "lane_shared_frac").to_numpy()
+    x = np.column_stack([np.log1p(x[:, 0]), x[:, 1:]])
+    x = (x - x.mean(0)) / np.maximum(x.std(0), 1e-6)
+    return torch.tensor(x, dtype=torch.float32, device=device)
+
+
+def make_encoder(kind, n_nodes, d, dropout, supports, node_feats=None):
     if kind == "dcrnn":
         return DCRNNEncoder(n_nodes, d, 2, dropout, supports)
     if kind == "gwnet":
         return GWNetEncoder(n_nodes, d, dropout, supports)
-    return GraphEncoder(n_nodes, d, 2, dropout, supports)
+    return GraphEncoder(n_nodes, d, 2, dropout, supports, node_feats)
 
 
 class STETA(nn.Module):
     def __init__(self, n_nodes, n_routes, f_issue, f_tok, supports, use_graph, d=128, d_g=64, dropout=0.1,
-                 encoder="ours"):
+                 encoder="ours", node_feats=None):
         super().__init__()
         self.n_nodes, self.use_graph = n_nodes, use_graph
         self.issue = nn.Sequential(nn.Linear(f_issue, d), nn.GELU(), nn.Linear(d, d))
@@ -343,7 +368,7 @@ class STETA(nn.Module):
         self.hpos = nn.Embedding(H, d)
         self.node_static = nn.Embedding(n_nodes + 1, d)               # last row = unknown segment
         if use_graph:
-            self.graph = make_encoder(encoder, n_nodes, d_g, dropout, supports)
+            self.graph = make_encoder(encoder, n_nodes, d_g, dropout, supports, node_feats)
             self.gproj = nn.Linear(d_g, d)
         layer = nn.TransformerEncoderLayer(d, 4, 4 * d, dropout, batch_first=True, norm_first=True)
         self.enc = nn.TransformerEncoder(layer, 3)
@@ -422,23 +447,28 @@ ISSUE_GROUPS = {
                   "issue_lag", "trip_progress", "k", "n_stops"],
     "time": ["tod_sin", "tod_cos"],
     "calendar_weather": ["is_holiday", "n_major_events", "temp_c", "precip_mm", "snow_cm", "wind_kmh"],
+    "school": ["is_school_day"],                                     # nn_v2 only
 }
-TOK_GROUPS = {"schedule": ["dist", "run_sched", "sched"], "rt": ["rt", "rt_fresh"], "mta": ["mta", "has_mta"]}
+TOK_GROUPS = {"schedule": ["dist", "run_sched", "sched"], "rt": ["rt", "rt_fresh"], "mta": ["mta", "has_mta"],
+              "segment_attrs": list(ATTR_COLS)}                      # nn_v2 only
 PERMUTE_GROUPS = list(ISSUE_GROUPS) + list(TOK_GROUPS) + ["route", "dow", "graph"]
 
 
 def eval_only(args) -> None:
     """Score a trained checkpoint on test after a perturbation (missing state or a permuted input)."""
     src = json.loads((MODELS / f"{args.eval_only}.json").read_text())["args"]
+    global NN
+    NN = PROCESSED / src.get("data", "nn")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     meta = json.loads((NN / "stats.json").read_text())
     issue_names, tok_names = meta["issue_num"], meta["tok_num"]
-    test = Split("test", src["no_mta"], tok_names)
+    test = Split("test", src["no_mta"], tok_names, src.get("no_attrs", False))
     state = None if src["no_graph"] else NetworkState(device)
     supports = [] if src["no_graph"] else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
-                  use_graph=not src["no_graph"], encoder=src.get("encoder", "ours")).to(device)
+                  use_graph=not src["no_graph"], encoder=src.get("encoder", "ours"),
+                  node_feats=load_node_feats(device) if src.get("inductive") else None).to(device)
     model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
     if src.get("holdout_routes"):
         cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
@@ -449,9 +479,9 @@ def eval_only(args) -> None:
     if args.permute:
         g = args.permute
         if g in ISSUE_GROUPS:
-            test.permute("issue_x", [issue_names.index(c) for c in ISSUE_GROUPS[g]], args.seed)
+            test.permute("issue_x", [issue_names.index(c) for c in ISSUE_GROUPS[g] if c in issue_names], args.seed)
         elif g in TOK_GROUPS:
-            test.permute("tok_x", [tok_names.index(c) for c in TOK_GROUPS[g]], args.seed)
+            test.permute("tok_x", [tok_names.index(c) for c in TOK_GROUPS[g] if c in tok_names], args.seed)
         elif g in ("route", "dow"):
             test.permute(g, None, args.seed)
         else:
@@ -478,6 +508,10 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--encoder", choices=ENCODERS, default="ours", help="graph encoder (ignored with --no-graph)")
     p.add_argument("--max-bins", type=int, default=MAX_BINS_PER_BATCH, help="time bins per batch (graph memory)")
+    p.add_argument("--data", default="nn", help="packed data folder under data/processed (nn, nn_v2)")
+    p.add_argument("--no-attrs", action="store_true", help="zero the nn_v2 segment-attribute token columns")
+    p.add_argument("--inductive", action="store_true",
+                   help="graph encoder from segment attributes, no per-segment vectors / adaptive adjacency")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
     p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
@@ -487,6 +521,8 @@ def main() -> None:
     if args.eval_only:
         torch.set_num_threads(n_cpus())
         return eval_only(args)
+    global NN
+    NN = PROCESSED / args.data
 
     torch.manual_seed(args.seed)
     torch.set_num_threads(n_cpus())
@@ -495,7 +531,7 @@ def main() -> None:
         args.batch_size = auto_batch_size(device)
     meta = json.loads((NN / "stats.json").read_text())
     tok_names = meta["tok_num"]
-    train, val, test = (Split(s, args.no_mta, tok_names) for s in ("train", "val", "test"))
+    train, val, test = (Split(s, args.no_mta, tok_names, args.no_attrs) for s in ("train", "val", "test"))
     if args.holdout_routes:
         held = [meta["route_map"][r] for r in args.holdout_routes]
         train.drop_routes(held)
@@ -511,7 +547,8 @@ def main() -> None:
     supports = [] if args.no_graph else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
-                  supports, use_graph=not args.no_graph, encoder=args.encoder).to(device)
+                  supports, use_graph=not args.no_graph, encoder=args.encoder,
+                  node_feats=load_node_feats(device) if args.inductive else None).to(device)
     print(f"{args.name}: {sum(p.numel() for p in model.parameters()):,} params on {device}; "
           f"train {len(train.bin):,} issues, val {len(val.bin):,}", flush=True)
 
