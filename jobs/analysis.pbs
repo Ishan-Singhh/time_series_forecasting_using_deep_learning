@@ -1,0 +1,39 @@
+#PBS -N bus_eta_analysis
+#PBS -l select=1:ncpus=4:ngpus=1:mem=28gb,walltime=12:00:00
+#PBS -l place=scatter:shared
+#PBS -q gpu
+#PBS -j oe
+#
+# Test-time analyses of a trained graph model (no training):
+#   missing-data robustness: hide DROPS shares of network-state observations
+#   permutation importance:  shuffle one input group across test issues
+#   qsub -v MODEL=stgnn_mta jobs/analysis.pbs
+#   qsub -v MODEL=stgnn_mta,DROPS="50",PERMS="graph rt" jobs/analysis.pbs   (DROPS in %, two digits)
+# Predictions go to data/processed/preds/analysis/; score with
+#   python -m bus_eta.evaluate --name analysis --models mta_cal seq_mta stgnn_mta analysis/stgnn_mta_drop50 ...
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+freest() { nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1; }
+for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
+  (( $(freest | cut -d, -f2) >= ${MIN_FREE_GB:-10} * 1024 )) && break
+  sleep 300
+done
+export CUDA_VISIBLE_DEVICES=$(freest | cut -d, -f1)
+mkdir -p jobs/logs
+LOG="jobs/logs/analysis_${PBS_JOBID%%.*}.log"
+M=${MODEL:-stgnn_mta}
+run() { python -m bus_eta.models.stgnn --eval-only "$M" --batch-size "${BATCH:-1024}" "$@" 2>&1 | grep -v -i warn; }
+{
+  echo "node $(hostname), NCPUS=${NCPUS}, GPU ${CUDA_VISIBLE_DEVICES}, model $M"
+  run --name "${M}_drop0"                       # sanity: must match the saved predictions
+  for d in ${DROPS:-25 50 75 90}; do
+    run --state-drop "0.$d" --name "${M}_drop$d"
+  done
+  for g in ${PERMS:-graph rt schedule mta bus_state time calendar_weather route dow}; do
+    run --permute "$g" --name "${M}_perm_${g}"
+  done
+} > "$LOG" 2>&1
+echo "log: $LOG"

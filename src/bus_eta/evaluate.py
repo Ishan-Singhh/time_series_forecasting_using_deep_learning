@@ -38,8 +38,10 @@ def unique_keys(df: pl.DataFrame) -> pl.DataFrame:
     return df.filter(pl.len().over(KEY) == 1)
 
 
-def load_common(models: list[str]) -> pl.DataFrame:
+def load_common(models: list[str], routes: list[str] | None = None) -> pl.DataFrame:
     df = unique_keys(pl.read_parquet(PREDS / "_truth.parquet"))
+    if routes:
+        df = df.filter(pl.col("route_id").is_in(routes))
     for m in models:
         p = unique_keys(pl.read_parquet(PREDS / f"{m}.parquet")).select(KEY + [pl.col("pred").alias(m)])
         df = df.join(p, on=KEY, how="inner")
@@ -131,9 +133,10 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--models", nargs="*")
     p.add_argument("--name", default="main")
+    p.add_argument("--routes", nargs="*", help="score only these routes (e.g. the held-out ones)")
     args = p.parse_args()
     models = args.models or sorted(f.stem for f in PREDS.glob("*.parquet") if not f.stem.startswith("_"))
-    df = load_common(models)
+    df = load_common(models, args.routes)
     res = score(df, models)
     sig = significance(df, models)
     RESULTS.mkdir(parents=True, exist_ok=True)

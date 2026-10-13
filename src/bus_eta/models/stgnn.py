@@ -18,6 +18,10 @@ the validation month only.
     python -m bus_eta.models.stgnn --name stgnn_no_mta --no-mta
     python -m bus_eta.models.stgnn --name seq_mta --no-graph
     python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet
+
+Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<name>.parquet):
+    python -m bus_eta.models.stgnn --eval-only stgnn_mta --state-drop 0.5 --name stgnn_mta_drop50
+    python -m bus_eta.models.stgnn --eval-only stgnn_mta --permute weather --name stgnn_mta_perm_weather
 """
 import argparse
 import json
@@ -57,13 +61,47 @@ class Split:
         self.tok_x = torch.from_numpy(tok_x)
         self.tok_valid = torch.from_numpy(z["tok_valid"])
         self.tok_node = torch.from_numpy(z["tok_node"].astype(np.int64))
+        # segment index for the *static* segment embedding; -1 = unknown. Differs from tok_node
+        # (which also reads the live network state) only for held-out routes / spatial ablation.
+        self.static_node = self.tok_node.clone()
         self.rt = torch.from_numpy(z["rt"])
         self.y = torch.from_numpy(z["y"])
         self.keys = (z["trip_id"], z["start_date"], z["k"])
+        self._index_bins()
+
+    FIELDS = ["bin", "route", "dow", "issue_x", "tok_x", "tok_valid", "tok_node", "static_node", "rt", "y"]
+
+    def _index_bins(self) -> None:
         # issues are sorted by bin: contiguous [start, end) per bin
-        b = z["bin"]
+        b = self.bin.numpy()
         cut = np.flatnonzero(np.diff(b)) + 1
         self.bin_ranges = np.stack([np.concatenate([[0], cut]), np.concatenate([cut, [len(b)]])], 1)
+
+    def drop_routes(self, routes: list[int]) -> None:
+        """Remove every issue of the held-out routes (training / validation splits)."""
+        keep = ~np.isin(self.route.numpy(), routes)
+        k = torch.from_numpy(keep)
+        for f in self.FIELDS:
+            setattr(self, f, getattr(self, f)[k])
+        self.keys = tuple(a[keep] for a in self.keys)
+        self._index_bins()
+
+    def treat_as_unseen(self, routes: list[int], seen_nodes: np.ndarray) -> None:
+        """Test issues of held-out routes: unknown route id, unknown static embedding for
+        segments that never appeared in training. Live network state is still available."""
+        held = torch.from_numpy(np.isin(self.route.numpy(), routes))
+        self.route[held] = 0
+        unseen = torch.from_numpy(~np.isin(self.static_node.numpy(), seen_nodes))
+        self.static_node[held[:, None] & unseen] = -1
+
+    def permute(self, field: str, cols, seed: int) -> None:
+        """Shuffle a field (or some of its feature columns) across issues: permutation importance."""
+        perm = torch.from_numpy(np.random.default_rng(seed).permutation(len(self.bin)))
+        x = getattr(self, field)
+        if cols is None:
+            setattr(self, field, x[perm])
+        else:
+            x[..., cols] = x[perm][..., cols]
 
     def batches(self, target_size: int, shuffle: bool, rng: np.random.Generator, max_bins: int = MAX_BINS_PER_BATCH):
         order = rng.permutation(len(self.bin_ranges)) if shuffle else np.arange(len(self.bin_ranges))
@@ -91,10 +129,29 @@ class NetworkState:
         self.x = torch.from_numpy(x).to(device=device, dtype=torch.float16)
         self.n_nodes = meta["n_nodes"]
         self.offsets = torch.arange(-WINDOW, 0, device=device)
+        self.bin_map = None                                           # test-time permutation of bins
 
     def window(self, bins: torch.Tensor) -> torch.Tensor:
+        if self.bin_map is not None:
+            bins = self.bin_map[bins]
         idx = (bins[:, None] + self.offsets).clamp(min=0)          # only completed bins < issue bin
         return self.x[idx].float()                                   # (nb, W, N, 4)
+
+    def drop_observations(self, p: float, seed: int) -> None:
+        """Hide a random share p of (bin, segment) observations, as if fewer buses reported."""
+        g = torch.Generator(device=self.x.device).manual_seed(seed)
+        for s in range(0, self.x.shape[0], 4096):                    # chunks keep the mask small
+            chunk = self.x[s:s + 4096]
+            hide = torch.rand(chunk.shape[:2], generator=g, device=self.x.device) < p
+            chunk[hide] = 0.0                                         # values and observed-mask -> unobserved
+
+    def permute_bins(self, test_bins: np.ndarray, seed: int) -> None:
+        """Feed each test bin the network state of another (random) test bin."""
+        u = np.unique(test_bins)
+        perm = np.random.default_rng(seed).permutation(u)
+        m = torch.arange(self.x.shape[0], device=self.x.device)
+        m[torch.from_numpy(u).to(m.device)] = torch.from_numpy(perm).to(m.device)
+        self.bin_map = m
 
 
 def sparse_support(src, dst, n, device):
@@ -294,7 +351,8 @@ class STETA(nn.Module):
 
     def forward(self, b, state: NetworkState | None):
         node = torch.where(b["tok_node"] >= 0, b["tok_node"], torch.full_like(b["tok_node"], self.n_nodes))
-        t = self.tok(b["tok_x"]) + self.hpos.weight[None] + self.node_static(node)
+        static = torch.where(b["static_node"] >= 0, b["static_node"], torch.full_like(b["static_node"], self.n_nodes))
+        t = self.tok(b["tok_x"]) + self.hpos.weight[None] + self.node_static(static)
         if self.use_graph:
             ubins, slot = torch.unique(b["bin"], return_inverse=True)
             g = self.graph(state.window(ubins)).to(t.dtype)            # (nb, N, d_g)
@@ -320,8 +378,7 @@ def auto_batch_size(device) -> int:
 
 def to_device(split: Split, idx: np.ndarray, device) -> dict:
     i = torch.from_numpy(idx)
-    names = ["bin", "route", "dow", "issue_x", "tok_x", "tok_valid", "tok_node", "rt", "y"]
-    return {n: getattr(split, n)[i].to(device, non_blocking=True) for n in names}
+    return {n: getattr(split, n)[i].to(device, non_blocking=True) for n in Split.FIELDS}
 
 
 def masked_l1(pred, b):
@@ -360,6 +417,55 @@ def predict(model, split, state, device, batch_size) -> pl.DataFrame:
     return pl.concat(parts)
 
 
+ISSUE_GROUPS = {
+    "bus_state": ["delay_dep", "delay_arr_k1", "delay_arr_k2", "delay_arr_k3", "pace_ratio_3", "headway_s",
+                  "issue_lag", "trip_progress", "k", "n_stops"],
+    "time": ["tod_sin", "tod_cos"],
+    "calendar_weather": ["is_holiday", "n_major_events", "temp_c", "precip_mm", "snow_cm", "wind_kmh"],
+}
+TOK_GROUPS = {"schedule": ["dist", "run_sched", "sched"], "rt": ["rt", "rt_fresh"], "mta": ["mta", "has_mta"]}
+PERMUTE_GROUPS = list(ISSUE_GROUPS) + list(TOK_GROUPS) + ["route", "dow", "graph"]
+
+
+def eval_only(args) -> None:
+    """Score a trained checkpoint on test after a perturbation (missing state or a permuted input)."""
+    src = json.loads((MODELS / f"{args.eval_only}.json").read_text())["args"]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    meta = json.loads((NN / "stats.json").read_text())
+    issue_names, tok_names = meta["issue_num"], meta["tok_num"]
+    test = Split("test", src["no_mta"], tok_names)
+    state = None if src["no_graph"] else NetworkState(device)
+    supports = [] if src["no_graph"] else load_supports(device)
+    n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
+    model = STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
+                  use_graph=not src["no_graph"], encoder=src.get("encoder", "ours")).to(device)
+    model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
+    if src.get("holdout_routes"):
+        cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
+        test.treat_as_unseen([meta["route_map"][r] for r in src["holdout_routes"]], np.array(cfg["seen_nodes"]))
+    if args.state_drop > 0:
+        assert state is not None, "--state-drop needs a graph model"
+        state.drop_observations(args.state_drop, args.seed)
+    if args.permute:
+        g = args.permute
+        if g in ISSUE_GROUPS:
+            test.permute("issue_x", [issue_names.index(c) for c in ISSUE_GROUPS[g]], args.seed)
+        elif g in TOK_GROUPS:
+            test.permute("tok_x", [tok_names.index(c) for c in TOK_GROUPS[g]], args.seed)
+        elif g in ("route", "dow"):
+            test.permute(g, None, args.seed)
+        else:
+            assert state is not None, "--permute graph needs a graph model"
+            state.permute_bins(test.bin.numpy(), args.seed)
+    bs = args.batch_size if args.batch_size > 0 else auto_batch_size(device)
+    mae = evaluate_split(model, test, state, device, 4 * bs)
+    print(f"{args.name}: test MAE {mae:.2f}s (from {args.eval_only}, state_drop={args.state_drop}, "
+          f"permute={args.permute})", flush=True)
+    out = PREDS / "analysis"              # kept out of the main table; evaluate with --models analysis/<name>
+    out.mkdir(parents=True, exist_ok=True)
+    predict(model, test, state, device, 4 * bs).write_parquet(out / f"{args.name}.parquet")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--name", required=True)
@@ -372,7 +478,15 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--encoder", choices=ENCODERS, default="ours", help="graph encoder (ignored with --no-graph)")
     p.add_argument("--max-bins", type=int, default=MAX_BINS_PER_BATCH, help="time bins per batch (graph memory)")
+    p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
+    p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
+    p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
+    p.add_argument("--state-drop", type=float, default=0.0, help="eval-only: share of network observations hidden")
+    p.add_argument("--permute", choices=PERMUTE_GROUPS, help="eval-only: input group shuffled across issues")
     args = p.parse_args()
+    if args.eval_only:
+        torch.set_num_threads(n_cpus())
+        return eval_only(args)
 
     torch.manual_seed(args.seed)
     torch.set_num_threads(n_cpus())
@@ -382,6 +496,17 @@ def main() -> None:
     meta = json.loads((NN / "stats.json").read_text())
     tok_names = meta["tok_num"]
     train, val, test = (Split(s, args.no_mta, tok_names) for s in ("train", "val", "test"))
+    if args.holdout_routes:
+        held = [meta["route_map"][r] for r in args.holdout_routes]
+        train.drop_routes(held)
+        val.drop_routes(held)
+        assert not np.isin(train.route.numpy(), held).any()
+        seen = np.unique(train.tok_node.numpy()[train.tok_valid.numpy()])
+        n_held = int(np.isin(test.route.numpy(), held).sum())
+        test.treat_as_unseen(held, seen)
+        print(f"held out {args.holdout_routes}: {n_held:,} test issues on unseen routes", flush=True)
+    else:
+        seen = None
     state = None if args.no_graph else NetworkState(device)
     supports = [] if args.no_graph else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
@@ -403,6 +528,10 @@ def main() -> None:
         t0, run, cnt = time.time(), 0.0, 0
         for idx in train.batches(args.batch_size, True, rng, args.max_bins):
             b = to_device(train, idx, device)
+            if args.ablate_p > 0:  # BusTr-style spatial input ablation: whole issue loses route + static ids
+                drop = torch.rand(len(idx), device=device) < args.ablate_p
+                b["route"] = torch.where(drop, torch.zeros_like(b["route"]), b["route"])
+                b["static_node"] = torch.where(drop[:, None], torch.full_like(b["static_node"], -1), b["static_node"])
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 pred = model(b, state).float()
             loss, n = masked_l1(pred, b)
@@ -426,9 +555,11 @@ def main() -> None:
                 break
 
     model.load_state_dict(torch.load(ckpt, map_location=device))
-    PREDS.mkdir(parents=True, exist_ok=True)
-    predict(model, test, state, device, 4 * args.batch_size).write_parquet(PREDS / f"{args.name}.parquet")
-    (MODELS / f"{args.name}.json").write_text(json.dumps({"args": vars(args), "best_val_mae": best}))
+    out = PREDS / "analysis" if args.holdout_routes else PREDS   # cold-start runs stay out of the main table
+    out.mkdir(parents=True, exist_ok=True)
+    predict(model, test, state, device, 4 * args.batch_size).write_parquet(out / f"{args.name}.parquet")
+    (MODELS / f"{args.name}.json").write_text(json.dumps({"args": vars(args), "best_val_mae": best,
+                                                          "seen_nodes": None if seen is None else seen.tolist()}))
     print("wrote test predictions", flush=True)
 
 

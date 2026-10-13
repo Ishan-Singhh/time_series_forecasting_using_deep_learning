@@ -21,6 +21,7 @@ ISSUE_COLS = [
 ]
 # Test issues scored (deterministic hash subsample); every model must use the same value.
 EVAL_FRAC = 0.25
+RANDOM_VAL_PPM = 7_000  # 0.7% of issues form the validation set of the random-split pitfall
 
 CATEGORICAL = ["route_id", "stop_id"]
 NUMERIC_BASE = [
@@ -35,7 +36,8 @@ NUMERIC_MTA = ["mta", "mta_minus_rt"]
 
 
 def sample_files(split: str) -> list[str]:
-    start, end = SPLITS[split]
+    # random_train / random_val (the "random split" pitfall) draw from every day, train..test
+    start, end = (SPLITS["train"][0], SPLITS["test"][1]) if split.startswith("random") else SPLITS[split]
     return [str(SAMPLES / f"{d.isoformat()}.parquet") for d in day_range(start, end)
             if (SAMPLES / f"{d.isoformat()}.parquet").exists()]
 
@@ -54,8 +56,17 @@ def load(split: str, issue_frac: float = 1.0, seed: int = 0) -> pl.DataFrame:
     wide = pl.scan_parquet(sample_files(split))
     # two vehicles occasionally report the same trip_id; such issues are ambiguous, drop them
     wide = wide.filter(pl.len().over("trip_id", "start_date", "k") == 1)
+    key = pl.concat_str([pl.col("trip_id"), pl.col("start_date"), pl.col("k").cast(pl.Utf8)])
+    if split.startswith("random"):
+        # Pitfall experiment: issues from all months shuffled into train/val, minus the scored test
+        # issues (same EVAL_FRAC hash as load("test")). Neighbouring issues of the same trip share
+        # most of their target stops, so this split leaks; it is here only to measure how much.
+        start, end = SPLITS["test"]
+        scored = pl.col("service_date").is_between(start, end) & ((key.hash(0) % 1_000_000) < int(EVAL_FRAC * 1_000_000))
+        is_val = (key.hash(12345) % 1_000_000) < RANDOM_VAL_PPM
+        wide = wide.filter(~scored & (is_val if split == "random_val" else ~is_val))
+        seed += 101  # subsample with a hash independent of the scored-issue hash
     if issue_frac < 1.0:
-        key = pl.concat_str([pl.col("trip_id"), pl.col("start_date"), pl.col("k").cast(pl.Utf8)])
         wide = wide.filter((key.hash(seed) % 1_000_000) < int(issue_frac * 1_000_000))
     long = to_long(wide).filter(pl.col("y").is_not_null())
 
