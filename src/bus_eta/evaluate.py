@@ -116,6 +116,17 @@ def significance(df: pl.DataFrame, models: list[str], seed: int = 0) -> pl.DataF
     return pl.DataFrame(rows)
 
 
+def seed_summary(res: pl.DataFrame) -> pl.DataFrame:
+    """Mean and sd over seeds: <model>_s<k> files are extra seeds of <model> (seed 0)."""
+    base = pl.col("model").str.replace(r"_s\d+$", "")
+    metrics = ["MAE", "MdAE", "RMSE", "MAPE_%", "R2", "P90_AE", "within_60s_%", "skill_vs_mta_%"]
+    return (res.with_columns(base.alias("model"))
+            .group_by("band", "model")
+            .agg(pl.len().alias("seeds"), *[pl.col(m).mean() for m in metrics],
+                 *[pl.col(m).std().alias(f"{m}_sd") for m in ("MAE", "RMSE", "skill_vs_mta_%")])
+            .sort("band", "MAE"))
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--models", nargs="*")
@@ -129,6 +140,8 @@ def main() -> None:
     res.write_csv(RESULTS / f"{args.name}.csv")
     if sig.height:
         sig.write_csv(RESULTS / f"{args.name}_significance.csv")
+    seeds = seed_summary(res)
+    seeds.write_csv(RESULTS / f"{args.name}_seeds.csv")
     pl.Config.set_tbl_rows(200)
     pl.Config.set_tbl_cols(20)
     pl.Config.set_tbl_width_chars(220)
@@ -139,6 +152,9 @@ def main() -> None:
         print(f"\npaired comparison vs {REFERENCE} (daily MAE; negative dMAE = better than reference)")
         pl.Config.set_float_precision(4)
         print(sig.sort("band", "dMAE_vs_ref"))
+    pl.Config.set_float_precision(2)
+    print("\nmean (sd) over seeds")
+    print(seeds)
 
 
 if __name__ == "__main__":

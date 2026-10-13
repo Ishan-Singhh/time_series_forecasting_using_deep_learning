@@ -1,4 +1,4 @@
-"""Download daily GTFS-RT archives (vehicle positions + trip updates) for Manhattan routes.
+"""Download daily GTFS-RT archives (vehicle positions, trip updates, service alerts) for Manhattan routes.
 
 Resumable: days whose output files already exist are skipped, and files are written
 atomically (tmp + rename), so an interrupted run never leaves a truncated parquet.
@@ -9,6 +9,9 @@ Trip updates are stored "change-only": for each (trip, start_date, stop_sequence
 a snapshot row only when its predicted arrival_time changed, plus the final snapshot in
 which the stop still appeared. The prediction in force at any feed time t is therefore the
 latest kept row with feed_timestamp <= t, and the stop's disappearance time is preserved.
+
+Service alerts are route-level free text (MTA leaves cause/effect empty). They are reduced
+to one row per (alert, route) with the first/last feed time it was seen that day.
 """
 import argparse
 import time
@@ -28,6 +31,7 @@ TU_COLS = [
     "schedule_relationship", "vehicle_id", "stop_sequence", "stop_id", "arrival_time",
 ]
 TU_KEY = ["trip_id", "start_date", "stop_sequence"]
+SA_KEY = ["entity_id", "route_id"]
 
 
 def feed_url(kind: str, d: date) -> str:
@@ -56,6 +60,17 @@ def fetch_trip_updates(d: date) -> pl.DataFrame:
     return tu.filter(changed | last_seen)
 
 
+def fetch_service_alerts(d: date) -> pl.DataFrame:
+    sa = scan_manhattan("service_alerts", d, SA_KEY + [
+        "feed_timestamp", "active_period_start", "active_period_end", "stop_id", "header_text", "description_text"])
+    return sa.group_by(SA_KEY).agg(
+        pl.col("feed_timestamp").min().alias("first_seen"), pl.col("feed_timestamp").max().alias("last_seen"),
+        pl.col("active_period_start").min(), pl.col("active_period_end").max(),
+        pl.col("stop_id").drop_nulls().unique().alias("stop_ids"),
+        pl.col("header_text").first(), pl.col("description_text").first(),
+    ).sort(SA_KEY)
+
+
 def write_atomic(df: pl.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -64,7 +79,8 @@ def write_atomic(df: pl.DataFrame, path: Path) -> None:
 
 
 def fetch_day(d: date, retries: int = 3) -> bool:
-    jobs = {"vehicle_positions": fetch_vehicle_positions, "trip_updates": fetch_trip_updates}
+    jobs = {"vehicle_positions": fetch_vehicle_positions, "trip_updates": fetch_trip_updates,
+            "service_alerts": fetch_service_alerts}
     ok = True
     for kind, fn in jobs.items():
         out = RAW_RT / kind / f"{d.isoformat()}.parquet"

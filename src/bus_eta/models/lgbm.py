@@ -40,6 +40,7 @@ def main() -> None:
     p.add_argument("--train-frac", type=float, default=0.05)
     p.add_argument("--val-frac", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--rounds", type=int, default=20000, help="cap; early stopping on val decides")
     p.add_argument("--drop", nargs="*", default=[], help="features to remove (ablation)")
     args = p.parse_args()
 
@@ -62,7 +63,7 @@ def main() -> None:
         "cat_smooth": 50, "max_cat_to_onehot": 8, "num_threads": n_cpus(), "seed": args.seed,
         "verbosity": -1,
     }
-    booster = lgb.train(params, dtrain, num_boost_round=5000, valid_sets=[dval], valid_names=["val"],
+    booster = lgb.train(params, dtrain, num_boost_round=args.rounds, valid_sets=[dval], valid_names=["val"],
                         callbacks=[lgb.early_stopping(100), lgb.log_evaluation(100)])
 
     MODELS.mkdir(parents=True, exist_ok=True)

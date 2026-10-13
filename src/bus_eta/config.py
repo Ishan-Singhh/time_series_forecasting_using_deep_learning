@@ -16,6 +16,7 @@ RT_BASE_URL = "http://parquet.gtfsrt.io"
 RT_FEED_B64 = {
     "trip_updates": "aHR0cHM6Ly9ndGZzcnQucHJvZC5vYmFueWMuY29tL3RyaXBVcGRhdGVz",
     "vehicle_positions": "aHR0cHM6Ly9ndGZzcnQucHJvZC5vYmFueWMuY29tL3ZlaGljbGVQb3NpdGlvbnM",
+    "service_alerts": "aHR0cHM6Ly9ndGZzcnQucHJvZC5vYmFueWMuY29tL2FsZXJ0cw",
 }
 
 # All Manhattan routes (M*, including SBS "+" variants).

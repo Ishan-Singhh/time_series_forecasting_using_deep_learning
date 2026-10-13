@@ -1,5 +1,5 @@
 #PBS -N bus_eta_stgnn
-#PBS -l select=1:ncpus=10:ngpus=1:mem=28gb,walltime=24:00:00
+#PBS -l select=1:ncpus=4:ngpus=1:mem=28gb,walltime=24:00:00
 #PBS -l place=scatter:shared
 #PBS -q gpu
 #PBS -j oe
@@ -8,6 +8,7 @@
 # evaluation of everything. Needs `python -m bus_eta.models.stgnn_data` first.
 #   qsub jobs/stgnn.pbs
 #   qsub -v VARIANTS="stgnn_mta",SEED=1,EPOCHS=10,EVAL=1 jobs/stgnn.pbs
+#   qsub -v VARIANTS="stgnn_mta",EPOCHS=20,TAG=e20 jobs/stgnn.pbs        # -> stgnn_mta_e20
 
 cd "${PBS_O_WORKDIR}"
 source /apps/anaconda3/bin/activate bus_eta
@@ -23,7 +24,8 @@ LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
     flags=""
     [[ $v == seq_* ]] && flags="$flags --no-graph"
     [[ $v == *_no_mta ]] && flags="$flags --no-mta"
-    python -m bus_eta.models.stgnn --name "$v" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 $flags || exit 1
+    name=$v${TAG:+_$TAG}; [[ ${SEED:-0} != 0 ]] && name="${name}_s${SEED}"   # seed 0 keeps the plain name
+    python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 $flags || exit 1
   done
   [[ -n "$EVAL" ]] && python -m bus_eta.evaluate --name main
 } > "$LOG" 2>&1

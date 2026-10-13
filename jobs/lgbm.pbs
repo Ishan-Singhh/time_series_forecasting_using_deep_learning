@@ -5,19 +5,20 @@
 #
 # Baselines + both LightGBM variants + evaluation. Submit from the repo root:
 #   qsub jobs/lgbm.pbs
-#   qsub -v TRAIN_FRAC=0.2 jobs/lgbm.pbs
+#   qsub -v TRAIN_FRAC=0.05,SEED=1 jobs/lgbm.pbs
 
 cd "${PBS_O_WORKDIR}"
 source /apps/anaconda3/bin/activate bus_eta
 export PYTHONUNBUFFERED=1
 mkdir -p jobs/logs
 LOG="jobs/logs/lgbm_${PBS_JOBID%%.*}.log"
-F="--train-frac ${TRAIN_FRAC:-0.05}"
+F="--train-frac ${TRAIN_FRAC:-0.2} --seed ${SEED:-0}"   # 0.2 = same issues as the neural models
+S=""; [[ ${SEED:-0} != 0 ]] && S="_s${SEED}"
 {
   echo "node $(hostname), NCPUS=${NCPUS}"
-  python -m bus_eta.models.baselines &&
-  python -m bus_eta.models.lgbm --name lgbm_no_mta $F &&
-  python -m bus_eta.models.lgbm --name lgbm_mta --use-mta $F &&
+  [[ -z "$S" ]] && { python -m bus_eta.models.baselines || exit 1; }
+  python -m bus_eta.models.lgbm --name lgbm_no_mta$S $F &&
+  python -m bus_eta.models.lgbm --name lgbm_mta$S --use-mta $F &&
   python -m bus_eta.evaluate --name main
 } > "$LOG" 2>&1
 echo "exit code $? -- log: $LOG"
