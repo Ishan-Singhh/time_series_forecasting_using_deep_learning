@@ -132,7 +132,8 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 |---|---|---|---|---|---|---|
 | **stgnn_mta (ours)** | 3 | **96.7 ± 0.1** | **158.8** | 15.2 | 49.3 | **+16.4%** |
 | stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
-| gwnet_mta | 2 | 97.1 | 159.8 | 15.2 | 49.3 | +16.0% |
+| gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
+| dcrnn_mta | 2 | 97.5 ± 0.2 | 160.8 | 15.3 | 49.1 | +15.7% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
 | seq_no_mta | 3 | 99.9 ± 0.2 | 166.2 | 15.6 | 48.5 | +13.7% |
@@ -152,7 +153,8 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | Model | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
 |---|---|---|---|---|---|
 | ours (stgnn_mta) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
-| gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.2 |
+| gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
+| dcrnn_mta | 28.9 | 57.5 | 96.2 | 128.3 | 155.0 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
 | mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
@@ -175,7 +177,9 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
    - Graph WaveNet captures about 75% of our encoder's gain over no-graph.
    - Ours vs GWNet: −0.41 s overall, better on 86% of days (p = 2e-7). The gap grows
      with horizon (−0.14 s at h1, −0.69 s at h16–20).
-   - DCRNN results are pending.
+   - DCRNN (2 seeds) is 97.5 ± 0.2 s: ours is better by 1.1 s on 98% of days
+     (p = 9e-13, seed 0 vs seed 0). DCRNN also costs 3–10× more GPU time per epoch.
+   - Ranking ours < GWNet < DCRNN < no graph holds in every horizon band.
 5. **Simple trees are as good one stop ahead.** LightGBM is the best model at h1 (28.3 s
    vs ours 28.6 s). Complexity pays off only at longer horizons; a blend at h1 is an
    option.
@@ -244,7 +248,7 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
   is**, and it actually learns worse (43.9 vs 37.8 s).
 - Our models at h1: 28.3–28.6 s against actual arrivals.
 - **Random-split leakage:** LightGBM trained on a random issue-level split over all
-  months — PENDING (job 27224).
+  months — PENDING (resubmitted as job 27249: the first run stalled on an overloaded node).
 
 ### 5.4 Cold start: routes never seen in training (BusTr / MAGTTE)
 - **Held-out routes:** M102, M7 (high segment sharing), M14D+, M5 (medium), M15+, M42
@@ -264,7 +268,10 @@ Results on the 6 held-out routes (MAE, s):
 |---|---|---|---|---|
 | stgnn_mta, trained *with* these routes (upper bound) | 96.5 | 28.9 | 151.9 | +16.5% |
 | seq_mta, trained with these routes | 98.2 | 29.2 | 155.3 | +15.1% |
-| **seq, held out + ablation** | **103.0** | 30.5 | 162.4 | **+10.9%** |
+| **inductive graph, held out + ablation** (`stgnn_mta_v2ind_ho_abl`) | **101.1** | **29.8** | **158.7** | **+12.5%** |
+| seq, held out + ablation | 103.0 | 30.5 | 162.4 | +10.9% |
+| seq v2 (school + attrs), held out + ablation | 103.3 | 30.5 | 162.3 | +10.6% |
+| stgnn v2 (school + attrs as token inputs), held out + ablation | 111.0 | 31.1 | 176.4 | +4.0% |
 | stgnn, held out + ablation | 110.6 | 31.2 | 176.2 | +4.3% |
 | stgnn, held out, no ablation | 115.3 | 36.1 | 183.6 | +0.3% |
 | seq, held out, no ablation | 116.8 | 36.5 | 185.0 | −1.0% |
@@ -275,10 +282,29 @@ Results on the 6 held-out routes (MAE, s):
   per-segment learned vectors and learned adaptive adjacency memorise segment identity,
   and they are untrained for unseen segments. The ablation removed route and static ids
   but not these encoder identities.
-- **Fix under test:** an *inductive* encoder (`--inductive`). Segments are described by
+- **Fix: an *inductive* encoder** (`--inductive`). Segments are described by
   physical attributes (signals, bus lanes, length) instead of learned vectors, with no
-  adaptive adjacency, in the spirit of MAGTTE's inductive learning. PENDING (nn_v2 runs).
-- LightGBM held-out (job 27229) and with attributes (27236) — PENDING.
+  adaptive adjacency, in the spirit of MAGTTE's inductive learning.
+  - **It turns the negative result around: 101.1 s on unseen routes**, vs 110.9 for the
+    transductive graph (−9.8 s) and 103.0 for no graph (−1.9 s). Paired daily: better
+    on **100% of the 42 days** in both comparisons (p = 5e-13). The gain over no graph
+    grows with horizon (−0.7 s at h1, −3.7 s at h16–20), the same signature as the graph
+    gain on seen routes.
+  - The unseen-route penalty shrinks from 14.4 s (110.9 vs 96.5) to 4.6 s.
+  - Price on seen routes: 97.2 vs 96.6 s (+0.6 s, 95% of days worse), still better than
+    on par with GWNet (97.1), better than DCRNN (97.5) and 1.3 s better than no graph.
+    So: transductive encoder for a
+    fixed network, inductive for a changing one; or a hybrid (future work).
+  - Giving the *transductive* model the same attributes as token inputs does not help
+    unseen routes (111.0 vs 110.6, n.s.). The fix is removing per-segment identity from
+    the encoder, not merely adding attributes.
+  - Seed 0 only so far. Seeds 1–2 for inductive and seq held-out are running (jobs
+    27252–27255).
+  - **Control running:** inductive with segment length only (`--inductive-feats len`,
+    job 27250) and with no attributes (`none`, 27251). This separates "signals and bus
+    lanes help" from "anonymous message passing transfers".
+- LightGBM held-out (job 27246) and with attributes (27247) — PENDING (resubmitted;
+  first runs stalled on overloaded nodes).
 
 ### 5.5 School calendar, traffic signals and bus lanes
 - Segment attributes check against reality:
@@ -291,11 +317,29 @@ Results on the 6 held-out routes (MAE, s):
   - useful for unseen segments and for interpretation (seconds per signal);
   - **Part-time lane activity** varies by hour and cannot be absorbed by a static
     embedding, so it is the most likely to help.
-- Runs — all PENDING:
-  - LightGBM `+school` (27233), `+attrs` (27234), `+both` (27235);
-  - nn_v2: `stgnn_mta_v2`, `stgnn_mta_v2noattr`, `seq_mta_v2`, `stgnn_mta_v2ind`;
-  - cold start: `*_v2_ho_abl`, `stgnn_mta_v2ind_ho_abl`.
-- School natural experiment: test Sep 1–9 (no school) vs Sep 10+ — analysis TODO.
+- **Results on the main test (seed 0, paired daily, 42 days):**
+
+| Comparison | ΔMAE (s) | Days better | Wilcoxon p |
+|---|---|---|---|
+| stgnn v2 (school + attrs) vs v1 | −0.01 | 45% | 1.0 |
+| stgnn v2 vs v2 without attrs (attrs only) | −0.04 | 69% | 0.03 |
+| stgnn v2 without attrs vs v1 (school flag only) | +0.03 | 36% | 0.2 |
+| seq v2 vs seq v1 | +0.28 | 26% | 3e-4 |
+
+  - **Neither the school flag nor signals / bus lanes (incl. hour-of-week lane activity)
+    improves accuracy.** All differences are below the 0.1–0.2 s seed spread. The tiny
+    attribute effect (−0.04 s) is not practically meaningful. The seq v2 loss (+0.28 s)
+    is about one seed s.d., so it should not be over-read either.
+  - Interpretation: the live network state already measures what the static attributes
+    describe. Their value is for transfer (§5.4), not for accuracy on known segments.
+- **School-start natural experiment** (no school Sep 1–9, school from Sep 10):
+  - Every model is about 14% worse from Sep 10: `mta_cal` 104.2 → 118.7 s, ours 86.7 →
+    99.2, seq 87.8 → 101.2. Mean travel time to target rises 759 → 784 s.
+  - Skill vs MTA is unchanged (16.8% vs 16.4%), so the regime change hits all predictors
+    equally; it is harder traffic, not model failure.
+  - The school flag doesn't help even after Sep 10 (−0.03 s): training (Mar–Jun) already
+    contains school days, and the network state reflects the extra traffic directly.
+- LightGBM `+school` (27233), `+attrs` (27234), `+both` (27248) — still running.
 
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
@@ -326,10 +370,12 @@ Results on the 6 held-out routes (MAE, s):
 - Evaluated on a 25% hash sample of test issues so far (to be 100% for final tables).
 
 ## 8. Open items / TODO
-- [ ] DCRNN seeds 0–1 (running), GWNet seed 2 (done; add to table).
+- [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
 - [ ] Random-split pitfall result (LightGBM).
-- [ ] Cold-start: LightGBM; inductive encoder; segment attributes.
-- [ ] nn_v2: school + attributes on the main test.
+- [x] Cold-start: inductive encoder; segment attributes.
+- [ ] Cold-start: LightGBM; inductive controls (len / none); seeds 1–2.
+- [x] nn_v2: school + attributes on the main test (no gain).
+- [ ] Decide paper framing of the inductive encoder (main model vs cold-start variant).
 - [ ] Training with random state dropout (robustness fix).
 - [ ] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts.
 - [ ] Uncertainty (quantile) outputs and calibration.

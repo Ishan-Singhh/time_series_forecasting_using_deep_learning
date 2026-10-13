@@ -339,12 +339,18 @@ class GWNetEncoder(nn.Module):
 ENCODERS = ("ours", "dcrnn", "gwnet")
 
 
-def load_node_feats(device) -> torch.Tensor:
-    """Standardised static segment attributes (segment_attrs.py) for the inductive encoder."""
+def load_node_feats(device, which="all") -> torch.Tensor:
+    """Standardised static segment attributes (segment_attrs.py) for the inductive encoder.
+    which: all | len (segment length only) | none (a constant: anonymous segments), the
+    last two being controls for how much the signal and bus-lane attributes contribute."""
     a = pl.read_parquet(GRAPH / "node_attrs.parquet").sort("node")
     x = a.select("seg_len_m", "n_signals", "signals_per_km", "lane_ded_frac", "lane_shared_frac").to_numpy()
     x = np.column_stack([np.log1p(x[:, 0]), x[:, 1:]])
     x = (x - x.mean(0)) / np.maximum(x.std(0), 1e-6)
+    if which == "len":
+        x = x[:, :1]
+    elif which == "none":
+        x = np.zeros((len(x), 1))
     return torch.tensor(x, dtype=torch.float32, device=device)
 
 
@@ -468,7 +474,7 @@ def eval_only(args) -> None:
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
                   use_graph=not src["no_graph"], encoder=src.get("encoder", "ours"),
-                  node_feats=load_node_feats(device) if src.get("inductive") else None).to(device)
+                  node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None).to(device)
     model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
     if src.get("holdout_routes"):
         cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
@@ -512,6 +518,8 @@ def main() -> None:
     p.add_argument("--no-attrs", action="store_true", help="zero the nn_v2 segment-attribute token columns")
     p.add_argument("--inductive", action="store_true",
                    help="graph encoder from segment attributes, no per-segment vectors / adaptive adjacency")
+    p.add_argument("--inductive-feats", choices=["all", "len", "none"], default="all",
+                   help="attributes the inductive encoder sees (len/none are controls)")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
     p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
@@ -548,7 +556,7 @@ def main() -> None:
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
                   supports, use_graph=not args.no_graph, encoder=args.encoder,
-                  node_feats=load_node_feats(device) if args.inductive else None).to(device)
+                  node_feats=load_node_feats(device, args.inductive_feats) if args.inductive else None).to(device)
     print(f"{args.name}: {sum(p.numel() for p in model.parameters()):,} params on {device}; "
           f"train {len(train.bin):,} issues, val {len(val.bin):,}", flush=True)
 
