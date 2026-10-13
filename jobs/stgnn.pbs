@@ -14,8 +14,14 @@ cd "${PBS_O_WORKDIR}"
 source /apps/anaconda3/bin/activate bus_eta
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-# GPUs are shared with other users: take the one with the most free memory.
-export CUDA_VISIBLE_DEVICES=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1 | cut -d, -f1)
+# GPUs are shared with other users: wait (up to WAIT_H hours) until one has MIN_FREE_GB
+# free, then take the one with the most free memory.
+freest() { nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1; }
+for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
+  (( $(freest | cut -d, -f2) >= ${MIN_FREE_GB:-10} * 1024 )) && break
+  sleep 300
+done
+export CUDA_VISIBLE_DEVICES=$(freest | cut -d, -f1)
 mkdir -p jobs/logs
 LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
 {
@@ -24,8 +30,10 @@ LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
     flags=""
     [[ $v == seq_* ]] && flags="$flags --no-graph"
     [[ $v == *_no_mta ]] && flags="$flags --no-mta"
+    [[ $v == dcrnn_* ]] && flags="$flags --encoder dcrnn"
+    [[ $v == gwnet_* ]] && flags="$flags --encoder gwnet"
     name=$v${TAG:+_$TAG}; [[ ${SEED:-0} != 0 ]] && name="${name}_s${SEED}"   # seed 0 keeps the plain name
-    python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 $flags || exit 1
+    python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 ${MAX_BINS:+--max-bins $MAX_BINS} $flags || exit 1
   done
   [[ -n "$EVAL" ]] && python -m bus_eta.evaluate --name main
 } > "$LOG" 2>&1
