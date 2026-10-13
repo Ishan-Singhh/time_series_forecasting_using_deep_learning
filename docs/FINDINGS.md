@@ -341,6 +341,47 @@ Results on the 6 held-out routes (MAE, s):
     contains school days, and the network state reflects the extra traffic directly.
 - LightGBM `+school` (27233), `+attrs` (27234), `+both` (27248) — still running.
 
+### 5.6 Error analysis by operating condition (`python -m bus_eta.error_analysis`)
+MAE (s) on the main common support, all horizons. Skill is vs `mta_cal`; graph gain is
+seq_mta − stgnn_mta. Files: `results/error_analysis.csv`, `error_analysis_by_route.csv`.
+
+| Condition | Rows | mta_cal | MTA published | lgbm | seq | ours | Ours skill | Graph gain |
+|---|---|---|---|---|---|---|---|---|
+| Night 0–6 | 2.2M | 83.0 | 82.8 | 66.0 | 66.5 | 65.7 | 20.8% | 0.8 |
+| AM peak 6–10 | 5.4M | 107.0 | 113.6 | 89.6 | 89.5 | 88.0 | 17.8% | 1.5 |
+| Midday 10–16 | 8.2M | 131.4 | 134.3 | 114.4 | 113.6 | 111.0 | 15.5% | 2.6 |
+| PM peak 16–20 | 5.5M | 122.2 | 121.8 | 105.3 | 105.1 | 103.3 | 15.5% | 1.8 |
+| Evening 20–24 | 4.1M | 104.4 | 101.9 | 91.1 | 88.1 | 86.8 | 16.8% | 1.3 |
+| Weekday | 19.2M | 118.1 | 119.8 | 100.8 | 100.3 | 98.7 | 16.5% | 1.7 |
+| Weekend | 6.2M | 108.1 | 110.4 | 94.2 | 92.5 | 90.2 | 16.5% | 2.2 |
+| Dry | 20.7M | 117.1 | 119.0 | 100.5 | 99.7 | 98.0 | 16.3% | 1.7 |
+| Light rain (<1 mm/h) | 3.1M | 111.7 | 113.2 | 95.7 | 94.7 | 92.1 | 17.5% | 2.6 |
+| Heavy rain (≥1 mm/h) | 1.5M | 104.6 | 106.1 | 88.8 | 88.3 | 86.3 | 17.4% | 1.9 |
+| SBS routes | 2.6M | 106.0 | 105.7 | 88.5 | 88.2 | 86.8 | 18.1% | 1.4 |
+| Local routes | 22.7M | 116.8 | 118.9 | 100.4 | 99.6 | 97.7 | 16.3% | 1.9 |
+| Service alert live on route | 16.7M | 119.9 | 122.2 | 103.4 | 102.4 | 100.4 | 16.3% | 2.0 |
+| No alert | 8.6M | 107.4 | 108.5 | 91.0 | 90.7 | 89.2 | 17.0% | 1.5 |
+
+- **The gain is uniform.** Skill vs MTA is 15.5–20.8% in every time period, day type,
+  weather and route type. **All 41 routes improve** (skill 9.9–30.9%). The graph gain
+  is ≥ 0 on every route (0.0 on M35, up to 4.5 s on M20, 4.2 on M50, 3.8 on M12).
+- **Midday, not the peaks, is hardest** for every predictor (ours 111 s vs 88 / 103 s at
+  the AM / PM peaks). It is also where the graph helps most (2.6 s): long dwell times,
+  deliveries and curb conflicts make downstream conditions matter more.
+- **MTA's published ETA is worst in the AM peak** (−6.1% vs the calibrated version):
+  its bias is time-dependent. Our models need no such correction.
+- **Rain does not make prediction harder.** Rainy hours have *lower* error for all
+  models; this is confounded with time of day, so it is not causal. It agrees with the
+  near-zero weather permutation importance (§5.2): the network state already reflects
+  the weather's effect on traffic.
+- **SBS routes** (off-board fare, bus lanes) are easier (86.8 vs 97.7 s) and have higher
+  skill.
+- **Service alerts** are live on 66% of route-issues. The MTA texts are generic ("You may
+  wait longer…"). Error is about 11 s higher when an alert is live, for every model.
+  Skill drops only slightly (16.3 vs 17.0%). Alerts mark harder conditions but carry
+  little specific information; a free-text alert feature is low priority.
+- The school-start split is in §5.5.
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
@@ -377,7 +418,7 @@ Results on the 6 held-out routes (MAE, s):
 - [x] nn_v2: school + attributes on the main test (no gain).
 - [ ] Decide paper framing of the inductive encoder (main model vs cold-start variant).
 - [ ] Training with random state dropout (robustness fix).
-- [ ] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts.
+- [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
 - [ ] Uncertainty (quantile) outputs and calibration.
 - [ ] Petersen ConvLSTM baseline.
 - [ ] Final protocol: 3 seeds for every model, EVAL_FRAC = 1.0, freeze hyperparameters.
