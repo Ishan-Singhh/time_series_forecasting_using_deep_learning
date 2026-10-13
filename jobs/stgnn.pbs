@@ -35,6 +35,6 @@ LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
     name=$v${TAG:+_$TAG}; [[ ${SEED:-0} != 0 ]] && name="${name}_s${SEED}"   # seed 0 keeps the plain name
     python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 ${MAX_BINS:+--max-bins $MAX_BINS} $flags || exit 1
   done
-  [[ -n "$EVAL" ]] && python -m bus_eta.evaluate --name main
+  if [[ -n "$EVAL" ]]; then python -m bus_eta.evaluate --name main; fi
 } > "$LOG" 2>&1
 echo "exit code $? -- log: $LOG"
