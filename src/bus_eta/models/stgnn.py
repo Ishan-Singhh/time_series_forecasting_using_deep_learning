@@ -133,12 +133,19 @@ class NetworkState:
         self.n_nodes = meta["n_nodes"]
         self.offsets = torch.arange(-WINDOW, 0, device=device)
         self.bin_map = None                                           # test-time permutation of bins
+        self.train_drop = 0.0                                         # max share hidden while training
 
-    def window(self, bins: torch.Tensor) -> torch.Tensor:
+    def window(self, bins: torch.Tensor, training: bool = False) -> torch.Tensor:
         if self.bin_map is not None:
             bins = self.bin_map[bins]
         idx = (bins[:, None] + self.offsets).clamp(min=0)          # only completed bins < issue bin
-        return self.x[idx].float()                                   # (nb, W, N, 4)
+        w = self.x[idx].float()                                      # (nb, W, N, 4)
+        if training and self.train_drop > 0:
+            # observation dropout: each bin in the batch hides a share p ~ U(0, train_drop) of its
+            # (step, segment) observations, so the model also sees sparse network coverage
+            p = torch.rand(w.shape[0], 1, 1, device=w.device) * self.train_drop
+            w = w * (torch.rand(w.shape[:3], device=w.device) >= p)[..., None]
+        return w
 
     def drop_observations(self, p: float, seed: int) -> None:
         """Hide a random share p of (bin, segment) observations, as if fewer buses reported."""
@@ -386,7 +393,7 @@ class STETA(nn.Module):
         t = self.tok(b["tok_x"]) + self.hpos.weight[None] + self.node_static(static)
         if self.use_graph:
             ubins, slot = torch.unique(b["bin"], return_inverse=True)
-            g = self.graph(state.window(ubins)).to(t.dtype)            # (nb, N, d_g)
+            g = self.graph(state.window(ubins, self.training)).to(t.dtype)            # (nb, N, d_g)
             flat_idx = slot[:, None] * self.n_nodes + node.clamp(max=self.n_nodes - 1)
             g_tok = g.reshape(-1, g.shape[-1])[flat_idx] * (b["tok_node"] >= 0)[..., None]
             t = t + self.gproj(g_tok)
@@ -522,6 +529,8 @@ def main() -> None:
                    help="attributes the inductive encoder sees (len/none are controls)")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
+    p.add_argument("--train-state-drop", type=float, default=0.0,
+                   help="observation dropout while training: hide up to this share of network state")
     p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
     p.add_argument("--state-drop", type=float, default=0.0, help="eval-only: share of network observations hidden")
     p.add_argument("--permute", choices=PERMUTE_GROUPS, help="eval-only: input group shuffled across issues")
@@ -552,6 +561,8 @@ def main() -> None:
     else:
         seen = None
     state = None if args.no_graph else NetworkState(device)
+    if state is not None:
+        state.train_drop = args.train_state_drop
     supports = [] if args.no_graph else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
