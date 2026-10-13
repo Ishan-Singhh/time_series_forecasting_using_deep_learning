@@ -371,9 +371,11 @@ def make_encoder(kind, n_nodes, d, dropout, supports, node_feats=None):
 
 class STETA(nn.Module):
     def __init__(self, n_nodes, n_routes, f_issue, f_tok, supports, use_graph, d=128, d_g=64, dropout=0.1,
-                 encoder="ours", node_feats=None):
+                 encoder="ours", node_feats=None, quantiles=None):
         super().__init__()
         self.n_nodes, self.use_graph = n_nodes, use_graph
+        self.quantiles = list(quantiles) if quantiles else None
+        self.n_out = len(quantiles) if quantiles else 1
         self.issue = nn.Sequential(nn.Linear(f_issue, d), nn.GELU(), nn.Linear(d, d))
         self.route = nn.Embedding(n_routes + 1, d)
         self.dow = nn.Embedding(7, d)
@@ -385,7 +387,7 @@ class STETA(nn.Module):
             self.gproj = nn.Linear(d_g, d)
         layer = nn.TransformerEncoderLayer(d, 4, 4 * d, dropout, batch_first=True, norm_first=True)
         self.enc = nn.TransformerEncoder(layer, 3)
-        self.head = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, d), nn.GELU(), nn.Linear(d, 1))
+        self.head = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, d), nn.GELU(), nn.Linear(d, self.n_out))
 
     def forward(self, b, state: NetworkState | None):
         node = torch.where(b["tok_node"] >= 0, b["tok_node"], torch.full_like(b["tok_node"], self.n_nodes))
@@ -400,7 +402,8 @@ class STETA(nn.Module):
         q = (self.issue(b["issue_x"]) + self.route(b["route"]) + self.dow(b["dow"]))[:, None]
         valid = torch.cat([torch.ones_like(b["tok_valid"][:, :1]), b["tok_valid"]], 1)
         out = self.enc(torch.cat([q, t], 1), src_key_padding_mask=~valid)
-        return self.head(out[:, 1:]).squeeze(-1) * RESIDUAL_SCALE
+        o = self.head(out[:, 1:]) * RESIDUAL_SCALE                    # (B, H, n_out)
+        return o.squeeze(-1) if self.n_out == 1 else o
 
 
 # ---------------------------------------------------------------- training
@@ -419,10 +422,25 @@ def to_device(split: Split, idx: np.ndarray, device) -> dict:
     return {n: getattr(split, n)[i].to(device, non_blocking=True) for n in Split.FIELDS}
 
 
+def median(pred, quantiles):
+    """Point prediction: the median column of a quantile head, or the single output."""
+    return pred if pred.dim() == 2 else pred[..., quantiles.index(0.5)]
+
+
 def masked_l1(pred, b):
     y = b["y"]
     m = torch.isfinite(y) & b["tok_valid"]
     return (torch.abs(b["rt"] + pred - torch.nan_to_num(y)) * m).sum() / m.sum().clamp(min=1), m.sum()
+
+
+def masked_pinball(pred, b, quantiles):
+    """Mean pinball loss summed over quantiles (= L1 / 2 per quantile at q = 0.5)."""
+    y = b["y"]
+    m = (torch.isfinite(y) & b["tok_valid"])[..., None]
+    err = torch.nan_to_num(y)[..., None] - (b["rt"][..., None] + pred)
+    q = torch.tensor(quantiles, device=pred.device)
+    loss = torch.maximum(q * err, (q - 1) * err) * m
+    return loss.sum() / m.sum().clamp(min=1), m.sum()
 
 
 @torch.no_grad()
@@ -433,7 +451,7 @@ def evaluate_split(model, split, state, device, batch_size):
         b = to_device(split, idx, device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
             pred = model(b, state).float()
-        loss, cnt = masked_l1(pred, b)
+        loss, cnt = masked_l1(median(pred, model.quantiles), b)
         tot += loss.item() * cnt.item()
         n += cnt.item()
     return tot / max(n, 1)
@@ -446,12 +464,16 @@ def predict(model, split, state, device, batch_size) -> pl.DataFrame:
     for idx in split.batches(batch_size, False, np.random.default_rng(0)):
         b = to_device(split, idx, device)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
-            pred = (b["rt"] + model(b, state).float()).cpu().numpy()
+            out = model(b, state).float()
+        point = (b["rt"] + median(out, model.quantiles)).cpu().numpy()
         valid = b["tok_valid"].cpu().numpy()
         r, h = np.nonzero(valid)
-        parts.append(pl.DataFrame({
-            "trip_id": split.keys[0][idx][r], "start_date": split.keys[1][idx][r],
-            "k": split.keys[2][idx][r], "h": (h + 1).astype(np.int8), "pred": pred[r, h]}))
+        cols = {"trip_id": split.keys[0][idx][r], "start_date": split.keys[1][idx][r],
+                "k": split.keys[2][idx][r], "h": (h + 1).astype(np.int8), "pred": point[r, h]}
+        if model.quantiles:                                           # q10, q50, q90, ... columns
+            qs = (b["rt"][..., None] + out).cpu().numpy()
+            cols |= {f"q{round(100 * q)}": qs[r, h, i] for i, q in enumerate(model.quantiles)}
+        parts.append(pl.DataFrame(cols))
     return pl.concat(parts)
 
 
@@ -481,7 +503,8 @@ def eval_only(args) -> None:
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
                   use_graph=not src["no_graph"], encoder=src.get("encoder", "ours"),
-                  node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None).to(device)
+                  node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None,
+                  quantiles=src.get("quantiles") or None).to(device)
     model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
     if src.get("holdout_routes"):
         cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
@@ -529,12 +552,16 @@ def main() -> None:
                    help="attributes the inductive encoder sees (len/none are controls)")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
+    p.add_argument("--quantiles", type=float, nargs="*", default=[],
+                   help="quantile head trained with pinball loss (must include 0.5, the point ETA)")
     p.add_argument("--train-state-drop", type=float, default=0.0,
                    help="observation dropout while training: hide up to this share of network state")
     p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
     p.add_argument("--state-drop", type=float, default=0.0, help="eval-only: share of network observations hidden")
     p.add_argument("--permute", choices=PERMUTE_GROUPS, help="eval-only: input group shuffled across issues")
     args = p.parse_args()
+    assert not args.quantiles or 0.5 in args.quantiles, "--quantiles must include 0.5"
+    args.quantiles = sorted(args.quantiles)
     if args.eval_only:
         torch.set_num_threads(n_cpus())
         return eval_only(args)
@@ -567,7 +594,8 @@ def main() -> None:
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
     model = STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
                   supports, use_graph=not args.no_graph, encoder=args.encoder,
-                  node_feats=load_node_feats(device, args.inductive_feats) if args.inductive else None).to(device)
+                  node_feats=load_node_feats(device, args.inductive_feats) if args.inductive else None,
+                  quantiles=args.quantiles or None).to(device)
     print(f"{args.name}: {sum(p.numel() for p in model.parameters()):,} params on {device}; "
           f"train {len(train.bin):,} issues, val {len(val.bin):,}", flush=True)
 
@@ -590,7 +618,7 @@ def main() -> None:
                 b["static_node"] = torch.where(drop[:, None], torch.full_like(b["static_node"], -1), b["static_node"])
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 pred = model(b, state).float()
-            loss, n = masked_l1(pred, b)
+            loss, n = masked_pinball(pred, b, args.quantiles) if args.quantiles else masked_l1(pred, b)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -599,7 +627,7 @@ def main() -> None:
             run += loss.item() * n.item()
             cnt += n.item()
         val_mae = evaluate_split(model, val, state, device, 4 * args.batch_size)
-        print(f"epoch {epoch:2d} train MAE {run / cnt:6.2f}s  val MAE {val_mae:6.2f}s  ({time.time() - t0:.0f}s)",
+        print(f"epoch {epoch:2d} train {'pinball' if args.quantiles else 'MAE'} {run / cnt:6.2f}s  val MAE {val_mae:6.2f}s  ({time.time() - t0:.0f}s)",
               flush=True)
         if val_mae < best - 0.01:
             best, bad = val_mae, 0
