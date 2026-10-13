@@ -291,10 +291,10 @@ Results on the 6 held-out routes (MAE, s):
     grows with horizon (−0.7 s at h1, −3.7 s at h16–20), the same signature as the graph
     gain on seen routes.
   - The unseen-route penalty shrinks from 14.4 s (110.9 vs 96.5) to 4.6 s.
-  - Price on seen routes: 97.2 vs 96.6 s (+0.6 s, 95% of days worse), still better than
-    on par with GWNet (97.1), better than DCRNN (97.5) and 1.3 s better than no graph.
-    So: transductive encoder for a
-    fixed network, inductive for a changing one; or a hybrid (future work).
+  - Price on seen routes: 97.2 vs 96.6 s (+0.6 s, 95% of days worse). That is on par
+    with GWNet (97.1), better than DCRNN (97.5) and 1.3 s better than no graph. So:
+    transductive encoder for a fixed network, inductive for a changing one; or a hybrid
+    (future work).
   - Giving the *transductive* model the same attributes as token inputs does not help
     unseen routes (111.0 vs 110.6, n.s.). The fix is removing per-segment identity from
     the encoder, not merely adding attributes.
