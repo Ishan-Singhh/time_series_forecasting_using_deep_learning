@@ -447,6 +447,23 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - Use case: "arriving in 6–9 min" displays, and transfer / missed-connection risk.
   MTA publishes only a point ETA.
 
+### 5.8 Candidate final model: quantile head + observation dropout (`stgnn_mta_qsdrop`)
+
+| Hidden network observations | 0% | 25% | 50% | 75% | 90% |
+|---|---|---|---|---|---|
+| Median MAE (s) | 96.6 | 96.8 | 97.0 | 97.5 | 98.3 |
+| 90% interval coverage (%) | 89.4 | – | 89.3 | – | 89.3 |
+| 90% interval mean width (s) | 384 | – | 385 | – | 388 |
+
+- The two improvements combine without conflict. Accuracy is within seed noise of the
+  best model at full coverage (96.4–96.7). It is robust to missing data like
+  `stgnn_mta_sdrop`, and calibrated like `stgnn_mta_q`.
+- **The intervals stay calibrated when data go missing.** Widths grow slightly (+1%)
+  instead of coverage collapsing.
+- Shuffling the network state costs +21.7 s (vs +33 for the plain model).
+- Proposal: make this the paper's main model. Train it for 3 seeds in the final
+  protocol, alongside the inductive variant for cold start.
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
