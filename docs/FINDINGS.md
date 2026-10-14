@@ -134,9 +134,10 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
 | gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
 | dcrnn_mta | 2 | 97.5 ± 0.2 | 160.8 | 15.3 | 49.1 | +15.7% |
-| convlstm_mta (Petersen et al. 2019) | 1 | 100.0 | 162.5 | – | – | +13.6% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
+| convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 1 | 99.0 | 161.2 | 15.5 | 48.7 | +14.4% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
+| convlstm_mta (10 ep) | 1 | 100.0 | 162.5 | 15.5 | 48.5 | +13.6% |
 | seq_no_mta | 3 | 99.9 ± 0.2 | 166.2 | 15.6 | 48.5 | +13.7% |
 | lgbm_no_mta | 1 | 100.7 | 185.6 | 15.6 | 48.5 | +13.0% |
 | mta_cal | – | 115.7 | 191.4 | 18.4 | 43.4 | 0 |
@@ -156,7 +157,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | ours (stgnn_mta) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
 | dcrnn_mta | 28.9 | 57.5 | 96.2 | 128.3 | 155.0 |
-| convlstm_mta | 29.3 | 58.6 | 98.5 | 131.8 | 159.8 |
+| convlstm_mta_e20 | 28.9 | 58.1 | 97.6 | 130.5 | 158.2 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
 | mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
@@ -207,8 +208,14 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
     - Ours beats it by 3.4 s on 100% of days (p = 5e-13). The gap grows from 0.7 s at
       h1 to 6.5 s at h16–20. Route-local convolution sees only the bus's own corridor;
       the graph sees crossing and parallel routes.
-    - Validation MAE was still falling at epoch 10 (90.7 vs our 88.0). A 20-epoch run is
-      queued to rule out under-training.
+    - Validation MAE was still falling at epoch 10 (90.7 vs our 88.0), so it was
+      retrained for 20 epochs (`convlstm_mta_e20`; val 90.1, flat over epochs 15–20).
+      This is now the reported baseline: **99.0 s**, +14.4% vs MTA, 0.9 s better than
+      10 epochs (98% of days, p = 3e-10). Unlike our model, it was under-trained at 10.
+    - Even at 20 epochs, ours beats it by 2.65 s on 100% of days (p = 5e-13; Sep 1–9
+      −3.0 s, Sep 10+ −2.6 s). The no-graph sequence model beats it by 0.8 s (86% of
+      days, p = 2e-6). It ties LightGBM on MAE (−0.07 s, p = 0.4) with much better RMSE
+      (161 vs 183). The gap to ours grows with horizon: 0.3 s at h1 to 4.9 s at h16–20.
 
 ## 5. Analyses
 
@@ -388,7 +395,8 @@ Results on the 6 held-out routes (MAE, s):
   - `+school`: −0.14 s (74% of days, p = 2e-4), all of it on school days (−0.20 s from
     Sep 10; +0.03 s before);
   - `+attrs` (path signals, bus-lane shares, lanes active now): −0.03 s (p = 0.01);
-  - `+both` (27248): still running.
+  - `+both` (`lgbm_mta_school_attrs`): −0.14 s vs base (76% of days, p = 7e-4), identical
+    to `+school` alone (+0.01 s, p = 0.7). The attributes add nothing on top of school.
   - Statistically detectable, practically negligible; the same conclusion as for the
     neural models.
 
@@ -518,7 +526,7 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
 - [ ] Optional: conformal recalibration of the quantiles on validation.
-- [x] Petersen ConvLSTM baseline (finding 10). 20-epoch check queued.
+- [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
 - [ ] Final protocol: 3 seeds for every model, EVAL_FRAC = 1.0, freeze hyperparameters.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
