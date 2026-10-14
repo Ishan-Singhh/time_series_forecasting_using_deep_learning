@@ -279,8 +279,45 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
 - Training and scoring on MTA's prediction makes the model look **31% better than it
   is**, and it actually learns worse (43.9 vs 37.8 s).
 - Our models at h1: 28.3–28.6 s against actual arrivals.
-- **Random-split leakage:** LightGBM trained on a random issue-level split over all
-  months — PENDING (job 27273; earlier runs 27224 and 27249 stalled on overloaded nodes). This is a deliberate control: it shows how much a random split inflates the score, and none of our reported models use it.
+- **Random-split leakage** (`lgbm_mta_randsplit`): the same LightGBM recipe, but train / val
+  issues drawn at random from every day Mar 1–Oct 11 (15% of issues, 79.6M rows, about the
+  size of the chronological 20% run). The scored test issues are excluded from training, so
+  the test rows themselves are never seen, only their neighbours: other buses on the same
+  trip and day, and the same days' traffic.
+  - Scored on the common support, which excludes 9,399 boundary issues (0.47%: Aug 31 trips
+    stored in the Sep 1 file; see the note below); 41 test days, 25.2M rows.
+
+| Model | MAE (s) | RMSE | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
+|---|---|---|---|---|---|---|---|
+| lgbm_mta, chronological split | 99.3 | 183.6 | 28.3 | 58.0 | 98.0 | 131.1 | 158.6 |
+| lgbm_mta_randsplit, random split | **96.6** | 177.1 | 28.4 | 57.2 | 95.9 | 126.9 | 152.6 |
+| stgnn_mta (ours, chronological) | 96.7 | 159.0 | 28.7 | 57.1 | 95.6 | 127.2 | 153.4 |
+
+  - **The random split makes the same model look 2.8 s (2.8%) better**: 99.2 → 96.4 s daily
+    mean, better on 100% of 41 days, p = 9e-13. Skill vs MTA rises from +14.2% to +16.6%.
+  - **That is enough to erase the whole graph advantage.** Evaluated this way, plain
+    LightGBM ties our graph model (−0.18 s, p = 0.1). A paper using a random split could
+    report a tree model "as good as" a spatio-temporal GNN.
+  - The inflation grows with horizon: +0.1 s at h1 (no gain), −6.0 s at h16–20. That is the
+    signature of neighbour leakage: issues of the same trip a few minutes apart share most
+    of their target stops, and a long-horizon target is one that another training issue
+    already observed.
+  - Caveat: the random split also trains on the test period itself (the D6 schedule pick and
+    school-start traffic). This number is the total effect of both; a day-blocked random
+    split (whole days shuffled) would separate them.
+  - The validation MAE is not comparable across the splits (random val 90.7 spans all
+    months; chronological val 89.6–89.7 is August only). Early stopping never triggered
+    (20,000 rounds): the leaked validation set keeps rewarding memorisation.
+  - **Bug found and fixed on the way.** The first scoring stopped on the overlap assertion:
+    1,404 scored test issues (0.07%) were in `random_train`. Late trips of Aug 31 are stored
+    in the Sep 1 sample file; `load("test")` selects by file but the exclusion used
+    `service_date`. The fix (commit 0d17a05) matches on the file date, which was checked to
+    give 0 overlap. The saved model was rescored with `--predict-only --drop-boundary`,
+    which leaves out all 9,399 boundary issues, including the 1,404.
+- **Paper point:** the two pitfalls together (wrong label: 31% optimistic; random split: a
+  further 2.8 s, more at long horizons) are larger than most of the model differences in
+  this literature. Our protocol (GPS truth, chronological split, daily paired tests) is a
+  contribution in itself.
 
 ### 5.4 Cold start: routes never seen in training (BusTr / MAGTTE)
 - **Held-out routes:** M102, M7 (high segment sharing), M14D+, M5 (medium), M15+, M42
@@ -516,7 +553,8 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
-- [ ] Random-split pitfall result (LightGBM).
+- [x] Random-split pitfall result (LightGBM): +2.8 s optimistic, ties our graph model (§5.3).
+- [ ] Optional: day-blocked random split, to separate neighbour leakage from training on the test period.
 - [x] Cold-start: inductive encoder; segment attributes.
 - [x] Cold-start: inductive controls (len / none); seeds 1–2.
 - [x] Cold-start: LightGBM held out (with and without attributes).
