@@ -280,7 +280,7 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
   is**, and it actually learns worse (43.9 vs 37.8 s).
 - Our models at h1: 28.3–28.6 s against actual arrivals.
 - **Random-split leakage:** LightGBM trained on a random issue-level split over all
-  months — PENDING (resubmitted as job 27249: the first run stalled on an overloaded node).
+  months — PENDING (job 27273; earlier runs 27224 and 27249 stalled on overloaded nodes). This is a deliberate control: it shows how much a random split inflates the score, and none of our reported models use it.
 
 ### 5.4 Cold start: routes never seen in training (BusTr / MAGTTE)
 - **Held-out routes:** M102, M7 (high segment sharing), M14D+, M5 (medium), M15+, M42
