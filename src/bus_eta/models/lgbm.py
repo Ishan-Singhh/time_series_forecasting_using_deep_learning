@@ -8,6 +8,7 @@ uses the validation month only.
     python -m bus_eta.models.lgbm --name lgbm_mta --use-mta
     python -m bus_eta.models.lgbm --name lgbm_no_mta_no_stop --drop stop_id     # ablation
     python -m bus_eta.models.lgbm --name lgbm_mta_randsplit --use-mta --split random  # leakage pitfall
+    python -m bus_eta.models.lgbm --name lgbm_mta_randsplit --predict-only --drop-boundary  # rescore saved model
 """
 import argparse
 import json
@@ -16,7 +17,7 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 
-from bus_eta.config import PROCESSED, n_cpus
+from bus_eta.config import PROCESSED, SPLITS, n_cpus
 from bus_eta.evaluate import KEY, PREDS
 from bus_eta.features import CATEGORICAL, EVAL_FRAC, feature_columns, load
 
@@ -48,7 +49,22 @@ def main() -> None:
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--split", choices=["chrono", "random"], default="chrono",
                    help="random = issues of all months shuffled into train/val (pitfall experiment)")
+    p.add_argument("--predict-only", action="store_true", help="score the saved booster of --name, no training")
+    p.add_argument("--drop-boundary", action="store_true",
+                   help="leave test issues whose service_date is before the test range (late trips of Aug 31 "
+                        "in the Sep 1 file) out of scoring; random-split models trained before that fix saw them")
     args = p.parse_args()
+    if args.predict_only:
+        meta = json.loads((MODELS / f"{args.name}.json").read_text())
+        saved = meta["args"]
+        booster = lgb.Booster(model_file=str(MODELS / f"{args.name}.txt"))
+        test = load("test", issue_frac=EVAL_FRAC, attrs=saved["attrs"])
+        if args.drop_boundary:
+            n = test.height
+            test = test.filter(pl.col("service_date") >= SPLITS["test"][0])
+            print(f"dropped {n - test.height:,} boundary test rows", flush=True)
+        predict(booster, test, meta["features"], meta["cat_maps"], saved)
+        return
 
     cols = [c for c in feature_columns(args.use_mta, args.school, args.attrs) if c not in args.drop]
     cats = [c for c in CATEGORICAL if c in cols]
@@ -86,10 +102,15 @@ def main() -> None:
     test = load("test", issue_frac=EVAL_FRAC, attrs=args.attrs)
     overlap = test.select(issue).unique().join(train_issues, on=issue).height
     assert overlap == 0, f"{overlap} scored test issues were also trained on"
+    predict(booster, test, cols, cat_maps, vars(args))
+
+
+def predict(booster: lgb.Booster, test: pl.DataFrame, cols: list[str], cat_maps: dict, args: dict) -> None:
     pred = test["rt"].to_numpy() + booster.predict(encode(test, cols, cat_maps), num_threads=n_cpus())
-    out = PREDS if args.split == "chrono" and not args.holdout_routes else PREDS / "analysis"  # side analyses
+    side = args["split"] != "chrono" or args["holdout_routes"]  # side analyses
+    out = PREDS / "analysis" if side else PREDS
     out.mkdir(parents=True, exist_ok=True)
-    test.select(KEY).with_columns(pl.Series("pred", pred)).write_parquet(out / f"{args.name}.parquet")
+    test.select(KEY).with_columns(pl.Series("pred", pred)).write_parquet(out / f"{args['name']}.parquet")
 
     imp = sorted(zip(cols, booster.feature_importance("gain")), key=lambda t: -t[1])
     total = sum(g for _, g in imp)

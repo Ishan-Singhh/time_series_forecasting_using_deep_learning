@@ -100,7 +100,7 @@ def add_path_attrs(long: pl.LazyFrame) -> pl.LazyFrame:
 
 def load(split: str, issue_frac: float = 1.0, seed: int = 0, attrs: bool = False) -> pl.DataFrame:
     """Long table for a split: one row per (issue, horizon) with an observed target."""
-    wide = pl.scan_parquet(sample_files(split))
+    wide = pl.scan_parquet(sample_files(split), include_file_paths="_file")
     # two vehicles occasionally report the same trip_id; such issues are ambiguous, drop them
     wide = wide.filter(pl.len().over("trip_id", "start_date", "k") == 1)
     key = pl.concat_str([pl.col("trip_id"), pl.col("start_date"), pl.col("k").cast(pl.Utf8)])
@@ -108,8 +108,11 @@ def load(split: str, issue_frac: float = 1.0, seed: int = 0, attrs: bool = False
         # Pitfall experiment: issues from all months shuffled into train/val, minus the scored test
         # issues (same EVAL_FRAC hash as load("test")). Neighbouring issues of the same trip share
         # most of their target stops, so this split leaks; it is here only to measure how much.
+        # load("test") selects by daily file, not service_date: the Sep 1 file holds late trips of
+        # Aug 31, so the test range must be matched on the file date too.
         start, end = SPLITS["test"]
-        scored = pl.col("service_date").is_between(start, end) & ((key.hash(0) % 1_000_000) < int(EVAL_FRAC * 1_000_000))
+        file_date = pl.col("_file").str.extract(r"(\d{4}-\d{2}-\d{2})\.parquet$").str.to_date()
+        scored = file_date.is_between(start, end) & ((key.hash(0) % 1_000_000) < int(EVAL_FRAC * 1_000_000))
         is_val = (key.hash(12345) % 1_000_000) < RANDOM_VAL_PPM
         wide = wide.filter(~scored & (is_val if split == "random_val" else ~is_val))
         seed += 101  # subsample with a hash independent of the scored-issue hash
