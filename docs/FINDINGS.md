@@ -325,8 +325,17 @@ Results on the 6 held-out routes (MAE, s):
     over anonymous segments,** i.e. from live upstream / downstream speeds on shared
     streets, not from signals or bus lanes. The learned per-segment identity is what
     breaks transfer. Signals and bus lanes add nothing beyond segment length.
-- LightGBM held-out (job 27246) and with attributes (27247) — PENDING (resubmitted;
-  first runs stalled on overloaded nodes).
+- **LightGBM held out** (same 6 routes removed from training; unseen `stop_id` /
+  `route_id` categories fall to LightGBM's default branch; no ablation trick):
+  - 105.0 s on the held-out routes, vs 98.9 when trained with them (+6.0 s; worse on
+    100% of days);
+  - path attributes (`--attrs`) recover 0.19 s (104.8; 86% of days, p = 1e-7). This is
+    the only model where the physical attributes measurably help transfer, and the
+    effect is still small;
+  - the inductive graph beats held-out LightGBM by 4.0 s on 100% of days (p = 5e-13),
+    with the gap growing from 0.7 s at h1 to 5.5 s at h16–20.
+  - Cold-start ranking: inductive graph 101.1 < seq + ablation 103.0 < LightGBM 104.8–105.0
+    < transductive graph 110.6 < mta_cal 115.6.
 
 ### 5.5 School calendar, traffic signals and bus lanes
 - Segment attributes check against reality:
@@ -471,7 +480,7 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [ ] Random-split pitfall result (LightGBM).
 - [x] Cold-start: inductive encoder; segment attributes.
 - [x] Cold-start: inductive controls (len / none); seeds 1–2.
-- [ ] Cold-start: LightGBM held out (27246, 27247 running).
+- [x] Cold-start: LightGBM held out (with and without attributes).
 - [x] nn_v2: school + attributes on the main test (no gain).
 - [ ] Decide paper framing of the inductive encoder (main model vs cold-start variant).
 - [x] Training with random state dropout (robustness fix, §5.1).
