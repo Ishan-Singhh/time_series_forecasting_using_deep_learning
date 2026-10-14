@@ -42,7 +42,7 @@ Last updated: 2026-10-14 (branch `restart-multistep-eta`)
 | Calendar | US federal holidays; major Manhattan events CSV; **NYC public-school days from the official NYCPS 2025-26 and 2026-27 calendars** (`nyc_school_calendar.csv`; 93 school days in the study period; school starts Sep 10, inside the test window) |
 | Signals | OpenStreetMap `highway=traffic_signals`, 7,763 nodes in the Manhattan bounding box, merged within 25 m into intersections |
 | Bus lanes | NYC DOT "Bus Lanes – Local Streets" (ycrg-ses3): 1,304 Manhattan segments, about 90 km; 799 dedicated, 353 shared. 736 are 24/7; the rest are part-time (mostly weekdays 7–10 AM / 2–7 PM) |
-| Service alerts | MTA bus alerts Mar 1–Oct 12. Route-level free text only (cause/effect empty), about 9 Manhattan alerts per day. Downloaded, not yet used |
+| Service alerts | MTA bus alerts Mar 1–Oct 12. Route-level free text only (cause/effect empty), about 9 Manhattan alerts per day. Used only in the error analysis (§5.6); not a model input |
 | Rejected: traffic speeds | NYC DOT real-time speeds (i4gi-tjb9) cover only **26 Manhattan links, all highways, bridges and tunnels** (FDR, West Side Hwy, Lincoln/BBT/QMT/GWB), about half invalid (status -101). No coverage of the avenues buses use. Commercial feeds aren't open; Uber Movement was discontinued. Paper point: the bus fleet itself is the street-level traffic sensor network |
 
 ### Ground truth (paper section: Data)
@@ -559,13 +559,27 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Cold-start: inductive controls (len / none); seeds 1–2.
 - [x] Cold-start: LightGBM held out (with and without attributes).
 - [x] nn_v2: school + attributes on the main test (no gain).
-- [ ] Decide paper framing of the inductive encoder (main model vs cold-start variant).
+- [x] Headline model decided (2026-10-15, user): the combined recipe `stgnn_mta_qsdrop`
+  (quantiles + observation dropout) is the paper's main model. The original `stgnn_mta`
+  stays as an ablation, and the inductive encoder is the cold-start variant.
+- [x] Service alerts: not used as a model input (decided 2026-10-15). They are live on 66%
+  of route-issues, their text is generic and the cause / effect fields are empty, so they
+  only mark harder periods (§5.6). The paper reports them in the error analysis and as a
+  limitation of open alert data.
 - [x] Training with random state dropout (robustness fix, §5.1).
 - [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
 - [ ] Optional: conformal recalibration of the quantiles on validation.
 - [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
-- [ ] Final protocol: 3 seeds for every model, EVAL_FRAC = 1.0, freeze hyperparameters.
+- [ ] Final protocol (started 2026-10-15; batch size fixed at 2048, as in seed 0):
+  - main model `stgnn_mta_qsdrop` seeds 1–2 (27324, 27327);
+  - ablation seeds `stgnn_mta_q` / `stgnn_mta_sdrop` s1–2;
+  - cold start with the final recipe, `stgnn_mta_v2indqsd_ho_abl` (inductive + quantiles
+    + dropout, nn_v2, held out + ablation 0.3), seeds 0–2 (27330–27332);
+  - `convlstm_mta_e20` s1–2 and `dcrnn_mta` s2 (27333–27335).
+  - Scoring stays on EVAL_FRAC = 0.25 (25.3M rows): significance is computed over days,
+    so a 4× larger sample of the same 42 days adds almost no power. It also keeps every
+    side analysis valid, e.g. the random-split model, which trained on the other 75%.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
 
