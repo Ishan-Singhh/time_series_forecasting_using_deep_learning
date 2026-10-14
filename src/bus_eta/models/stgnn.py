@@ -18,6 +18,7 @@ the validation month only.
     python -m bus_eta.models.stgnn --name stgnn_no_mta --no-mta
     python -m bus_eta.models.stgnn --name seq_mta --no-graph
     python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet
+    python -m bus_eta.models.stgnn --name convlstm_mta --arch convlstm  # Petersen et al. 2019
 
 Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<name>.parquet):
     python -m bus_eta.models.stgnn --eval-only stgnn_mta --state-drop 0.5 --name stgnn_mta_drop50
@@ -406,6 +407,57 @@ class STETA(nn.Module):
         return o.squeeze(-1) if self.n_out == 1 else o
 
 
+class ConvLSTMCell(nn.Module):
+    def __init__(self, c_in, hid, k=3):
+        super().__init__()
+        self.hid = hid
+        self.conv = nn.Conv1d(c_in + hid, 4 * hid, k, padding=k // 2)
+
+    def forward(self, x, h, c):                                       # (B, C, H) along the route
+        i, f, o, g = self.conv(torch.cat([x, h], 1)).chunk(4, 1)
+        c = torch.sigmoid(f) * c + torch.sigmoid(i) * torch.tanh(g)
+        return torch.sigmoid(o) * torch.tanh(c), c
+
+
+class PetersenConvLSTM(nn.Module):
+    """Baseline after Petersen, Rodrigues & Pereira (2019, ESWA): a multi-output ConvLSTM
+    over the (time x downstream link) grid of the bus's own route. Input grid: the last
+    WINDOW bins of network state on each of the H downstream segments, plus the same
+    per-token and per-issue features as our model (broadcast over time). Convolutions run
+    along the route, recurrence over time; no network graph and no Transformer."""
+
+    def __init__(self, n_nodes, n_routes, f_issue, f_tok, hid=64, d_ctx=16, n_layers=2):
+        super().__init__()
+        self.n_nodes, self.quantiles, self.n_out = n_nodes, None, 1
+        self.tok = nn.Linear(f_tok, d_ctx)
+        self.issue = nn.Linear(f_issue, d_ctx)
+        self.route = nn.Embedding(n_routes + 1, d_ctx)
+        self.dow = nn.Embedding(7, d_ctx)
+        c_in = 4 + 2 * d_ctx
+        self.cells = nn.ModuleList([ConvLSTMCell(c_in if i == 0 else hid, hid) for i in range(n_layers)])
+        self.head = nn.Sequential(nn.Conv1d(hid + c_in - 4, hid, 1), nn.GELU(), nn.Conv1d(hid, 1, 1))
+
+    def forward(self, b, state: NetworkState):
+        node = b["tok_node"]
+        ubins, slot = torch.unique(b["bin"], return_inverse=True)
+        g = state.window(ubins, self.training)                       # (nb, W, N, 4)
+        nb, w, n, _ = g.shape
+        g = g.permute(0, 2, 1, 3).reshape(nb * n, w, 4)
+        x = g[slot[:, None] * n + node.clamp(min=0, max=n - 1)]       # (B, H, W, 4)
+        x = (x * (node >= 0)[..., None, None]).permute(0, 2, 3, 1)  # (B, W, 4, H)
+        ctx = self.tok(b["tok_x"].float()).transpose(1, 2)           # (B, d_ctx, H)
+        iss = (self.issue(b["issue_x"].float()) + self.route(b["route"]) + self.dow(b["dow"]))[..., None]
+        ctx = torch.cat([ctx, iss.expand(-1, -1, ctx.shape[-1])], 1)  # (B, 2 d_ctx, H)
+        hs = [torch.zeros(x.shape[0], c.hid, x.shape[-1], device=x.device) for c in self.cells]
+        cs = [torch.zeros_like(h) for h in hs]
+        for t in range(w):
+            inp = torch.cat([x[:, t], ctx], 1)
+            for i, cell in enumerate(self.cells):
+                hs[i], cs[i] = cell(inp, hs[i], cs[i])
+                inp = hs[i]
+        return self.head(torch.cat([hs[-1], ctx], 1)).squeeze(1) * RESIDUAL_SCALE   # (B, H)
+
+
 # ---------------------------------------------------------------- training
 def auto_batch_size(device) -> int:
     """Size batches to the GPU memory free right now (the GPUs are shared with other users)."""
@@ -498,10 +550,12 @@ def eval_only(args) -> None:
     meta = json.loads((NN / "stats.json").read_text())
     issue_names, tok_names = meta["issue_num"], meta["tok_num"]
     test = Split("test", src["no_mta"], tok_names, src.get("no_attrs", False))
-    state = None if src["no_graph"] else NetworkState(device)
-    supports = [] if src["no_graph"] else load_supports(device)
+    convlstm = src.get("arch") == "convlstm"
+    state = None if src["no_graph"] and not convlstm else NetworkState(device)
+    supports = [] if src["no_graph"] or convlstm else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
-    model = STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
+    model = PetersenConvLSTM(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2]).to(device) \
+        if convlstm else STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
                   use_graph=not src["no_graph"], encoder=src.get("encoder", "ours"),
                   node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None,
                   quantiles=src.get("quantiles") or None).to(device)
@@ -552,6 +606,8 @@ def main() -> None:
                    help="attributes the inductive encoder sees (len/none are controls)")
     p.add_argument("--holdout-routes", nargs="*", default=[], help="routes removed from train/val (cold start)")
     p.add_argument("--ablate-p", type=float, default=0.0, help="spatial input ablation probability (BusTr)")
+    p.add_argument("--arch", choices=["steta", "convlstm"], default="steta",
+                   help="steta = our model family; convlstm = Petersen et al. (2019) baseline")
     p.add_argument("--quantiles", type=float, nargs="*", default=[],
                    help="quantile head trained with pinball loss (must include 0.5, the point ETA)")
     p.add_argument("--train-state-drop", type=float, default=0.0,
@@ -587,12 +643,14 @@ def main() -> None:
         print(f"held out {args.holdout_routes}: {n_held:,} test issues on unseen routes", flush=True)
     else:
         seen = None
-    state = None if args.no_graph else NetworkState(device)
+    convlstm = args.arch == "convlstm"
+    state = None if args.no_graph and not convlstm else NetworkState(device)
     if state is not None:
         state.train_drop = args.train_state_drop
-    supports = [] if args.no_graph else load_supports(device)
+    supports = [] if args.no_graph or convlstm else load_supports(device)
     n_nodes = pl.read_parquet(GRAPH / "nodes.parquet").height
-    model = STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
+    model = PetersenConvLSTM(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2]).to(device) \
+        if convlstm else STETA(n_nodes, len(meta["route_map"]), train.issue_x.shape[1], train.tok_x.shape[2],
                   supports, use_graph=not args.no_graph, encoder=args.encoder,
                   node_feats=load_node_feats(device, args.inductive_feats) if args.inductive else None,
                   quantiles=args.quantiles or None).to(device)
