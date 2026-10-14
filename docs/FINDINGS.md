@@ -204,12 +204,23 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
 | Hidden | 0% | 25% | 50% | 75% | 90% |
 |---|---|---|---|---|---|
 | stgnn_mta MAE (s) | 96.5 | 97.0 | 98.3 | 101.0 | 104.5 |
+| **stgnn_mta_sdrop** (trained with observation dropout) | 96.7 | 96.8 | 97.1 | 97.5 | **98.4** |
 
 - The no-graph model scores 98.4 s, so the graph is worth having while about half or
   more of the observations remain.
 - Below that it is *worse* than having no graph, because it was trained only on
   full-coverage data.
-- Planned fix: random observation dropout during training.
+- **Fix: observation dropout during training** (`--train-state-drop 0.9`). Each
+  training bin hides a random share p ~ U(0, 0.9) of its (step, segment) observations.
+  - Degradation at 90% hidden falls from +8.0 s to +1.7 s. The model now matches the
+    no-graph model (98.4) even with only 10% of observations, and beats it at every
+    coverage ≥ 25%.
+  - Cost at full coverage: +0.14 s (96.66 vs 96.52, 29% of days better, p = 0.003),
+    about one seed s.d.
+  - It also leans less on the graph: shuffling the network state costs +17.6 s (vs +33
+    without dropout). It uses the state but no longer depends on it.
+  - Recommendation for the paper: report both. Use dropout for deployment, or for any
+    agency with incomplete AVL coverage.
 - Relevance: agencies with partial AVL coverage.
 
 ### 5.2 Permutation importance of the graph model (one input group shuffled on test)
@@ -298,11 +309,22 @@ Results on the 6 held-out routes (MAE, s):
   - Giving the *transductive* model the same attributes as token inputs does not help
     unseen routes (111.0 vs 110.6, n.s.). The fix is removing per-segment identity from
     the encoder, not merely adding attributes.
-  - Seed 0 only so far. Seeds 1–2 for inductive and seq held-out are running (jobs
-    27252–27255).
-  - **Control running:** inductive with segment length only (`--inductive-feats len`,
-    job 27250) and with no attributes (`none`, 27251). This separates "signals and bus
-    lanes help" from "anonymous message passing transfers".
+  - **3 seeds:** inductive 101.22 ± 0.10 s vs seq (held out + ablation) 103.04 ± 0.04
+    s, so the 1.8 s gap is about 20× the seed spread.
+  - **Controls: the physical attributes are not what transfers.**
+
+| Inductive encoder sees | Unseen-route MAE (s) | vs all attributes (paired) |
+|---|---|---|
+| all (length, signals, signals/km, bus-lane shares) | 101.22 (3 seeds) | – |
+| segment length only (`--inductive-feats len`) | 100.95 | −0.21 s, p = 0.006 |
+| nothing, a constant (`none`) | 101.40 | +0.25 s, p = 2e-4 |
+| (no graph: seq, held out + ablation) | 103.04 | |
+
+    Even with *no* segment information, the inductive graph beats no graph by 1.6 s
+    (better on 90% of days, p = 2e-10). **The cold-start gain comes from message passing
+    over anonymous segments,** i.e. from live upstream / downstream speeds on shared
+    streets, not from signals or bus lanes. The learned per-segment identity is what
+    breaks transfer. Signals and bus lanes add nothing beyond segment length.
 - LightGBM held-out (job 27246) and with attributes (27247) — PENDING (resubmitted;
   first runs stalled on overloaded nodes).
 
@@ -339,7 +361,13 @@ Results on the 6 held-out routes (MAE, s):
     equally; it is harder traffic, not model failure.
   - The school flag doesn't help even after Sep 10 (−0.03 s): training (Mar–Jun) already
     contains school days, and the network state reflects the extra traffic directly.
-- LightGBM `+school` (27233), `+attrs` (27234), `+both` (27248) — still running.
+- **LightGBM** (paired daily vs `lgbm_mta`):
+  - `+school`: −0.14 s (74% of days, p = 2e-4), all of it on school days (−0.20 s from
+    Sep 10; +0.03 s before);
+  - `+attrs` (path signals, bus-lane shares, lanes active now): −0.03 s (p = 0.01);
+  - `+both` (27248): still running.
+  - Statistically detectable, practically negligible; the same conclusion as for the
+    neural models.
 
 ### 5.6 Error analysis by operating condition (`python -m bus_eta.error_analysis`)
 MAE (s) on the main common support, all horizons. Skill is vs `mta_cal`; graph gain is
@@ -382,6 +410,34 @@ seq_mta − stgnn_mta. Files: `results/error_analysis.csv`, `error_analysis_by_r
   little specific information; a free-text alert feature is low priority.
 - The school-start split is in §5.5.
 
+### 5.7 Uncertainty: quantile head (`--quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95`)
+Same graph model, one output per quantile, pinball loss; the median is the point ETA.
+Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
+
+- **The point accuracy is not hurt.** The median scores MAE 96.40 vs 96.52 for the L1
+  model (−0.12 s, 67% of days, p = 0.01; within seed noise). Validation MAE 87.9 is the
+  best of any run.
+- **Calibration** (all horizons): share of arrivals below q5 / q10 / q25 / q50 / q75 /
+  q90 / q95 is 4.8 / 9.6 / 24.2 / 48.6 / 73.6 / 89.0 / 94.2%. Quantiles never cross.
+
+| Horizon | 50% int. coverage | width (s) | 80% int. coverage | width (s) | 90% int. coverage | width (s) |
+|---|---|---|---|---|---|---|
+| h1 | 50.6 | 46 | 80.6 | 89 | 90.5 | 118 |
+| h2–5 | 49.8 | 90 | 79.8 | 175 | 89.8 | 231 |
+| h6–10 | 49.4 | 150 | 79.3 | 291 | 89.3 | 380 |
+| h11–15 | 49.2 | 199 | 79.0 | 385 | 89.1 | 503 |
+| h16–20 | 48.9 | 239 | 78.8 | 463 | 88.9 | 603 |
+
+- Slight under-coverage at long horizons (−1.2 pt at h16–20 for 80%) is a typical
+  test-month shift. It could be corrected with split-conformal recalibration on
+  validation (future work).
+- **The intervals are adaptive, not just horizon-wide bands.** Split test predictions
+  into fifths by 80% interval width: mean absolute error is 33 / 61 / 87 / 116 / 184 s,
+  while coverage stays 80.3 / 79.5 / 79.2 / 79.2 / 78.7%. Spearman(width, |error|) =
+  0.51. The model knows which ETAs are unreliable.
+- Use case: "arriving in 6–9 min" displays, and transfer / missed-connection risk.
+  MTA publishes only a point ETA.
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
@@ -414,12 +470,14 @@ seq_mta − stgnn_mta. Files: `results/error_analysis.csv`, `error_analysis_by_r
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
 - [ ] Random-split pitfall result (LightGBM).
 - [x] Cold-start: inductive encoder; segment attributes.
-- [ ] Cold-start: LightGBM; inductive controls (len / none); seeds 1–2.
+- [x] Cold-start: inductive controls (len / none); seeds 1–2.
+- [ ] Cold-start: LightGBM held out (27246, 27247 running).
 - [x] nn_v2: school + attributes on the main test (no gain).
 - [ ] Decide paper framing of the inductive encoder (main model vs cold-start variant).
-- [ ] Training with random state dropout (robustness fix).
+- [x] Training with random state dropout (robustness fix, §5.1).
 - [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
-- [ ] Uncertainty (quantile) outputs and calibration.
+- [x] Uncertainty (quantile) outputs and calibration (§5.7).
+- [ ] Optional: conformal recalibration of the quantiles on validation.
 - [ ] Petersen ConvLSTM baseline.
 - [ ] Final protocol: 3 seeds for every model, EVAL_FRAC = 1.0, freeze hyperparameters.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
