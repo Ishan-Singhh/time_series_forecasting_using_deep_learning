@@ -194,6 +194,9 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 8. **Training longer (20 epochs) didn't help on test** (96.70 vs 96.61 s), despite about
    0.3 s better validation MAE. It overfits the validation month. 10 epochs is the
    protocol.
+9. **Consistency.** Predicted arrival times decrease from one stop to the next on only
+   0.19% of consecutive pairs for ours (MTA: 0.36%). No additive / monotone head is
+   needed.
 10. **Petersen et al.'s ConvLSTM** (`--arch convlstm`, a faithful re-implementation
     given the same inputs). It runs a ConvLSTM over the (time × downstream link) grid of
     the bus's own route, then outputs every horizon at once.
@@ -206,9 +209,6 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
       the graph sees crossing and parallel routes.
     - Validation MAE was still falling at epoch 10 (90.7 vs our 88.0). A 20-epoch run is
       queued to rule out under-training.
-9. **Consistency.** Predicted arrival times decrease from one stop to the next on only
-   0.19% of consecutive pairs for ours (MTA: 0.36%). No additive / monotone head is
-   needed.
 
 ## 5. Analyses
 
