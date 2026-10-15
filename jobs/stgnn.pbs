@@ -8,8 +8,10 @@
 # evaluation of everything. Needs `python -m bus_eta.models.stgnn_data` first.
 #   qsub jobs/stgnn.pbs
 #   qsub -v VARIANTS="stgnn_mta",SEED=1,EPOCHS=10,EVAL=1 jobs/stgnn.pbs
+#   qsub -v VARIANTS="stgnn_mta",SEEDS="1 2" jobs/stgnn.pbs                 # seeds back to back
 #   qsub -v VARIANTS="convlstm_mta" jobs/stgnn.pbs                         # Petersen et al. 2019 baseline
 #   qsub -v VARIANTS="stgnn_mta",EPOCHS=20,TAG=e20 jobs/stgnn.pbs        # -> stgnn_mta_e20
+#   qsub -v VARIANTS="staeformer_mta",GPU=1 jobs/stgnn.pbs                 # pin a GPU
 #   qsub -v VARIANTS="stgnn_mta",TAG=ho,EXTRA="--holdout-routes M102 M7" jobs/stgnn.pbs
 
 cd "${PBS_O_WORKDIR}"
@@ -24,13 +26,18 @@ freest() {
     awk -F', *' '$3 + 0 == 0 {print $1 "," $2}' | sort -t, -k2 -nr | head -1
 }
 free_mb() { local f; f=$(freest | cut -d, -f2); echo "${f:-0}"; }
-sleep "${DELAY:-0}"   # stagger jobs submitted together so they don't grab the same free memory
-for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
-  (( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) && break
-  sleep 300
-done
-(( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) || { echo "no healthy GPU with ${MIN_FREE_GB:-10} GB free"; exit 1; }
-export CUDA_VISIBLE_DEVICES=$(freest | cut -d, -f1)
+# GPU=<index> skips the wait and the ECC check and uses that GPU as is.
+if [[ -n "$GPU" ]]; then
+  export CUDA_VISIBLE_DEVICES=$GPU
+else
+  sleep "${DELAY:-0}"   # stagger jobs submitted together so they don't grab the same free memory
+  for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
+    (( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) && break
+    sleep 300
+  done
+  (( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) || { echo "no healthy GPU with ${MIN_FREE_GB:-10} GB free"; exit 1; }
+  export CUDA_VISIBLE_DEVICES=$(freest | cut -d, -f1)
+fi
 mkdir -p jobs/logs
 LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
 {
@@ -45,8 +52,10 @@ LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
     [[ $v == a3tgcn_* ]] && flags="$flags --encoder a3tgcn"
     [[ $v == staeformer_* ]] && flags="$flags --encoder staeformer"
     [[ $v == convlstm_* ]] && flags="$flags --arch convlstm"
-    name=$v${TAG:+_$TAG}; [[ ${SEED:-0} != 0 ]] && name="${name}_s${SEED}"   # seed 0 keeps the plain name
-    python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 ${MAX_BINS:+--max-bins $MAX_BINS} ${BATCH:+--batch-size $BATCH} ${EXTRA} $flags || exit 1
+    for seed in ${SEEDS:-${SEED:-0}}; do   # SEEDS="0 1" runs the seeds one after another
+      name=$v${TAG:+_$TAG}; [[ $seed != 0 ]] && name="${name}_s${seed}"   # seed 0 keeps the plain name
+      python -m bus_eta.models.stgnn --name "$name" --seed "$seed" --epochs "${EPOCHS:-10}" --patience 3 ${MAX_BINS:+--max-bins $MAX_BINS} ${BATCH:+--batch-size $BATCH} ${EXTRA} $flags || exit 1
+    done
   done
   if [[ -n "$EVAL" ]]; then python -m bus_eta.evaluate --name main; fi
 } > "$LOG" 2>&1

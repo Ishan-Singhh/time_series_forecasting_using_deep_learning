@@ -655,8 +655,10 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   "uncorrectable ECC error": GPU 1 shows 4 uncorrected DRAM errors and a row remap pending,
   which needs an admin GPU reset. Best checkpoints (epoch 7, val 88.79 / 89.47 s) kept as
   `staeformer_mta_ep7.pt` / `staeformer_mta_s1_ep7.pt`, but they are mid-schedule
-  (OneCycle LR not annealed), so not used for the paper. Rerun as 27375 / 27376 with
-  `jobs/stgnn.pbs` now skipping GPUs with uncorrected ECC errors. Seed 2 (27371, GPU 0) is
+  (OneCycle LR not annealed), so not used for the paper. `jobs/stgnn.pbs` now skips GPUs with uncorrected ECC errors. A retry pinned to GPU 1
+  (27383 / 27384, 21:35) failed on the first host-to-GPU copy with the same ECC error, so
+  GPU 1 rejects all CUDA work until reset. Seeds 0 and 1 rerun back to back on GPU 0 as
+  27385 (`SEEDS="0 1"`, waits for 15 GB free). Seed 2 (27371, GPU 0) is
   unaffected, at about 22 min/epoch.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
