@@ -36,6 +36,7 @@ LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
     [[ $v == gwnet_* ]] && flags="$flags --encoder gwnet"
     [[ $v == tgcn_* ]] && flags="$flags --encoder tgcn"
     [[ $v == a3tgcn_* ]] && flags="$flags --encoder a3tgcn"
+    [[ $v == staeformer_* ]] && flags="$flags --encoder staeformer"
     [[ $v == convlstm_* ]] && flags="$flags --arch convlstm"
     name=$v${TAG:+_$TAG}; [[ ${SEED:-0} != 0 ]] && name="${name}_s${SEED}"   # seed 0 keeps the plain name
     python -m bus_eta.models.stgnn --name "$name" --seed "${SEED:-0}" --epochs "${EPOCHS:-10}" --patience 3 ${MAX_BINS:+--max-bins $MAX_BINS} ${BATCH:+--batch-size $BATCH} ${EXTRA} $flags || exit 1

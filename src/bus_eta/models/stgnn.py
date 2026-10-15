@@ -17,7 +17,7 @@ the validation month only.
     python -m bus_eta.models.stgnn --name stgnn_mta
     python -m bus_eta.models.stgnn --name stgnn_no_mta --no-mta
     python -m bus_eta.models.stgnn --name seq_mta --no-graph
-    python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet, tgcn, a3tgcn
+    python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet, tgcn, a3tgcn, staeformer
     python -m bus_eta.models.stgnn --name convlstm_mta --arch convlstm  # Petersen et al. 2019
 
 Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<name>.parquet):
@@ -134,12 +134,19 @@ class NetworkState:
         self.n_nodes = meta["n_nodes"]
         self.offsets = torch.arange(-WINDOW, 0, device=device)
         self.bin_map = None                                           # test-time permutation of bins
+        # local time of day (5-min slot) and weekday of every bin, for encoders that embed them
+        start = pl.from_epoch(pl.Series((np.arange(x.shape[0]) + meta["first_bin"]) * meta["bin_s"]), time_unit="s") \
+            .dt.replace_time_zone("UTC").dt.convert_time_zone("America/New_York")
+        slot = (start.dt.hour().cast(pl.Int64) * 60 + start.dt.minute().cast(pl.Int64)) // (meta["bin_s"] // 60)
+        self.time = torch.from_numpy(np.stack([slot.to_numpy(), start.dt.weekday().to_numpy() - 1], -1)
+                                     .astype(np.int64)).to(device)  # (n_bins, 2)
         self.train_drop = 0.0                                         # max share hidden while training
 
     def window(self, bins: torch.Tensor, training: bool = False) -> torch.Tensor:
         if self.bin_map is not None:
             bins = self.bin_map[bins]
         idx = (bins[:, None] + self.offsets).clamp(min=0)          # only completed bins < issue bin
+        self.last_time = self.time[idx]                              # (nb, W, 2): slot, weekday
         w = self.x[idx].float()                                      # (nb, W, N, 4)
         if training and self.train_drop > 0:
             # observation dropout: each bin in the batch hides a share p ~ U(0, train_drop) of its
@@ -359,6 +366,62 @@ class A3TGCNEncoder(nn.Module):
         return self.drop(h) + self.node_emb                           # (nb, N, d)
 
 
+class SelfAttention(nn.Module):
+    """STAEformer's attention layer (post-norm) along one axis of (nb, T, N, D)."""
+
+    def __init__(self, d, d_ff, heads, dropout):
+        super().__init__()
+        self.heads, self.p = heads, dropout
+        self.qkv, self.o = nn.Linear(d, 3 * d), nn.Linear(d, d)
+        self.ff = nn.Sequential(nn.Linear(d, d_ff), nn.ReLU(), nn.Linear(d_ff, d))
+        self.ln1, self.ln2, self.drop = nn.LayerNorm(d), nn.LayerNorm(d), nn.Dropout(dropout)
+
+    def forward(self, x, dim):
+        x = x.transpose(dim, -2)                                      # attend along `dim`
+        shape = x.shape
+        z = x.reshape(-1, shape[-2], shape[-1])
+        q, k, v = (t.unflatten(-1, (self.heads, -1)).transpose(1, 2) for t in self.qkv(z).chunk(3, -1))
+        a = F.scaled_dot_product_attention(q, k, v, dropout_p=self.p if self.training else 0.0)
+        a = self.o(a.transpose(1, 2).flatten(-2)).reshape(shape)
+        x = self.ln1(x + self.drop(a))
+        x = self.ln2(x + self.drop(self.ff(x)))
+        return x.transpose(dim, -2)
+
+
+class STAEformerEncoder(nn.Module):
+    """STAEformer encoder (Liu et al., CIKM 2023): input, time-of-day, day-of-week and a
+    spatio-temporal adaptive embedding (one learned vector per window step and segment),
+    then 3 temporal and 3 spatial vanilla Transformer layers; the output projection mixes
+    the window steps of each segment. Paper sizes (24 / 24 / 24, 4 heads, FFN 256, 3 + 3
+    layers) except the adaptive embedding, 88 instead of 80, so the head size (40) is a
+    multiple of 8 and the full spatial attention over 2,111 segments runs in the fused
+    memory-efficient kernels. Attention runs in bf16 under the training autocast."""
+
+    needs_time = True
+
+    def __init__(self, n_nodes, d, dropout, steps=WINDOW, d_in=24, d_tod=24, d_dow=24, d_adp=88, heads=4,
+                 d_ff=256, layers=3, slots=288):
+        super().__init__()
+        dm = d_in + d_tod + d_dow + d_adp
+        self.inp = nn.Linear(4, d_in)
+        self.tod, self.dow = nn.Embedding(slots, d_tod), nn.Embedding(7, d_dow)
+        self.adp = nn.Parameter(nn.init.xavier_uniform_(torch.empty(steps, n_nodes, d_adp)))
+        self.t_layers = nn.ModuleList([SelfAttention(dm, d_ff, heads, dropout) for _ in range(layers)])
+        self.s_layers = nn.ModuleList([SelfAttention(dm, d_ff, heads, dropout) for _ in range(layers)])
+        self.out = nn.Linear(steps * dm, d)
+        self.node_emb = nn.Parameter(torch.randn(n_nodes, d) * 0.02)
+
+    def forward(self, x, time):                                       # x (nb, W, N, 4), time (nb, W, 2)
+        nb, w, n, _ = x.shape
+        t = torch.cat([self.tod(time[..., 0]), self.dow(time[..., 1])], -1)[:, :, None].expand(-1, -1, n, -1)
+        h = torch.cat([self.inp(x), t.to(self.inp.weight.dtype), self.adp[-w:].expand(nb, -1, -1, -1)], -1)
+        for layer in self.t_layers:
+            h = layer(h, 1)
+        for layer in self.s_layers:
+            h = layer(h, 2)
+        return self.out(h.transpose(1, 2).reshape(nb, n, -1)).float() + self.node_emb   # (nb, N, d)
+
+
 class GWNetEncoder(nn.Module):
     """Graph WaveNet encoder (Wu et al., IJCAI 2019): gated dilated causal temporal convs
     (dilations 1,2 x4, receptive field 13) interleaved with diffusion GCNs over the fixed
@@ -400,7 +463,7 @@ class GWNetEncoder(nn.Module):
         return out.transpose(1, 2) + self.node_emb                    # (nb, N, d)
 
 
-ENCODERS = ("ours", "dcrnn", "gwnet", "tgcn", "a3tgcn")
+ENCODERS = ("ours", "dcrnn", "gwnet", "tgcn", "a3tgcn", "staeformer")
 
 
 def load_node_feats(device, which="all") -> torch.Tensor:
@@ -423,6 +486,8 @@ def make_encoder(kind, n_nodes, d, dropout, supports, node_feats=None):
         return DCRNNEncoder(n_nodes, d, 2, dropout, supports)
     if kind == "gwnet":
         return GWNetEncoder(n_nodes, d, dropout, supports)
+    if kind == "staeformer":
+        return STAEformerEncoder(n_nodes, d, dropout)
     if kind in ("tgcn", "a3tgcn"):
         return A3TGCNEncoder(n_nodes, d, dropout, gcn_support(supports[0].device), attention=kind == "a3tgcn")
     return GraphEncoder(n_nodes, d, 2, dropout, supports, node_feats)
@@ -454,7 +519,9 @@ class STETA(nn.Module):
         t = self.tok(b["tok_x"]) + self.hpos.weight[None] + self.node_static(static)
         if self.use_graph:
             ubins, slot = torch.unique(b["bin"], return_inverse=True)
-            g = self.graph(state.window(ubins, self.training)).to(t.dtype)            # (nb, N, d_g)
+            w = state.window(ubins, self.training)
+            g = (self.graph(w, state.last_time) if getattr(self.graph, "needs_time", False)
+                 else self.graph(w)).to(t.dtype)                                    # (nb, N, d_g)
             flat_idx = slot[:, None] * self.n_nodes + node.clamp(max=self.n_nodes - 1)
             g_tok = g.reshape(-1, g.shape[-1])[flat_idx] * (b["tok_node"] >= 0)[..., None]
             t = t + self.gproj(g_tok)
