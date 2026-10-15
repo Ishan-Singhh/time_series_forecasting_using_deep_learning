@@ -139,6 +139,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | dcrnn_mta | 3 | 97.5 ± 0.2 | 160.7 | 15.3 | 49.1 | +15.7% |
 | tgcn_mta (Zhao et al. 2020) | 1 | 97.8 | 161.8 | 15.3 | 49.1 | +15.5% |
 | a3tgcn_mta (Bai et al. 2021) | 3 | 97.9 ± 0.1 | 161.8 | 15.3 | 49.0 | +15.4% |
+| staeformer_mta (Liu et al. 2023), preliminary | 1 (s2) | 98.6 | 162.7 | 15.3 | 48.9 | +14.8% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
 | convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
@@ -167,6 +168,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | gwnet_mta (3) | −0.38 | 88% | 1e-6 |
 | dcrnn_mta (3) | −0.79 | 98% | 1e-12 |
 | a3tgcn_mta (3) | −1.18 | 100% | 5e-13 |
+| staeformer_mta (seed 2 only, preliminary) | −1.80 | 98% | 3e-12 |
 | seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
 | convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
 | lgbm_mta | −2.59 | 100% | 5e-13 |
@@ -186,6 +188,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
 | dcrnn_mta | 28.9 | 57.5 | 96.3 | 128.3 | 155.0 |
 | a3tgcn_mta | 28.8 | 57.6 | 96.7 | 128.8 | 155.7 |
+| staeformer_mta (s2, prelim.) | 28.8 | 57.8 | 97.3 | 130.0 | 157.0 |
 | convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
@@ -219,6 +222,23 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
      90% of days, p = 3e-8) and GWNet (+0.80 s), ahead of no graph (−0.67 s, 100% of days).
      The final model beats it by 1.18 s on 100% of days. Its attention adds nothing: seed 0
      ties plain T-GCN (−0.01 s, p = 0.8). About 4 min/epoch, the cheapest graph baseline.
+   - **STAEformer** (`--encoder staeformer`: no adjacency at all; temporal then spatial
+     self-attention over all 2,111 segments, with time-of-day, day-of-week and learned
+     adaptive node embeddings). **Preliminary, seed 2 only** (seeds 0–1 rerunning after
+     the GPU fault): 98.6 s, +14.8% vs MTA, RMSE 162.7. It ties the no-graph model
+     (−0.05 s vs seq, 3 seeds, 43% of days, p = 0.7) and is behind every adjacency-based
+     encoder: A3T-GCN +0.62 s (p = 1e-6), DCRNN +1.01 s, GWNet +1.42 s, ours (final,
+     3 seeds) +1.80 s on 98% of days (p = 3e-12). It beats LightGBM by 0.78 s (p = 0.05).
+     Only at h1 is it near the graph models (28.8 s). The gap grows with horizon
+     (h16–20: 157.0 vs 153.6 s for ours).
+     Its validation MAE (88.86 s) is better than A3T-GCN's (89.07) and seq's (89.76), but
+     the val→test gap is the largest of the neural models (+9.7 s, vs +8.6 for ours and
+     +9.0 for seq). A possible reading is that the learned node and time embeddings fit
+     the training period and transfer less well to the test period (school start), but one seed cannot show this.
+     About 20 min/epoch alone on an L40, 36 min with two runs sharing a GPU: the most
+     expensive baseline. Reading: on a sparse probe network, where most segments have no
+     fresh observation at a given time, attention without the road graph recovers nothing
+     over the bus's own trajectory; the physical adjacency is what carries the gain.
    - Reading: typed, directed message passing (flow-forward / spillback / corridor, as in
      ours and DCRNN) beats a single undirected adjacency; the encoder ranking follows how
      much of the street structure the graph keeps.
