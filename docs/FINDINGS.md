@@ -143,6 +143,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | convlstm_mta (10 ep) | 1 | 100.0 | 162.5 | 15.5 | 48.5 | +13.6% |
 | seq_no_mta | 3 | 99.9 ± 0.2 | 166.2 | 15.6 | 48.5 | +13.7% |
 | lgbm_no_mta | 1 | 100.7 | 185.6 | 15.6 | 48.5 | +13.0% |
+| hist_avg (historical average, no live data) | – | 114.9 | 189.9 | 17.9 | 44.2 | +0.6% |
 | mta_cal | – | 115.7 | 191.4 | 18.4 | 43.4 | 0 |
 | mta (published) | – | 117.5 | 197.4 | 18.7 | 43.3 | −1.6% |
 | rt | – | 135.0 | 237.6 | 21.6 | 38.2 | −16.7% |
@@ -184,6 +185,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
+| hist_avg | 33.7 | 67.4 | 113.3 | 151.6 | 183.4 |
 | mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
 
 ### Findings
@@ -240,6 +242,20 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
       −3.0 s, Sep 10+ −2.6 s). The no-graph sequence model beats it by 0.8 s (86% of
       days, p = 2e-6). It ties LightGBM on MAE (−0.07 s, p = 0.4) with much better RMSE
       (161 vs 183). The gap to ours grows with horizon: 0.3 s at h1 to 4.9 s at h16–20.
+
+11. **A historical average with no live data matches MTA's deployed predictions**
+    (`python -m bus_eta.models.hist_avg`).
+    - Method: the mean TRAIN travel time from departing stop k to arriving at k+h, for the
+      same route, direction, stop, horizon, day type (weekday / Saturday / Sunday or holiday)
+      and hour. Cells with < 5 observations back off to coarser keys; 99.6% of test rows find
+      a full cell, and 0.4% fall back to the timetable.
+    - 114.9 s overall vs 115.7 for `mta_cal` (−0.98 s, better on 69% of days, p = 0.03) and
+      117.5 for MTA as published. One stop ahead it is 12.6% better than MTA (33.7 vs
+      38.6 s); from h6 onwards the two are level (within 0.7%).
+    - The operator's real-time system, which knows every bus's position, adds nothing over
+      a lookup table of past travel times. All our learned models beat it by 15.7–18.2 s.
+    - This motivates the paper: the open real-time feed carries information MTA's own
+      predictor doesn't use.
 
 ## 5. Analyses
 
@@ -618,6 +634,11 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   - Scoring stays on EVAL_FRAC = 0.25 (25.3M rows): significance is computed over days,
     so a 4× larger sample of the same 42 days adds almost no power. It also keeps every
     side analysis valid, e.g. the random-split model, which trained on the other 75%.
+- [x] Historical-average baseline (finding 11).
+- [ ] T-GCN / A3T-GCN baselines (2026-10-15): `a3tgcn_mta` seeds 0–2 (27347, 27348, 27349),
+  `tgcn_mta` seed 0 (27350, A3T-GCN without its attention). Encoder `--encoder a3tgcn|tgcn`.
+- [ ] STAEformer baseline (Liu et al., CIKM 2023), seeds 0–2 (27352–27354), queued behind the
+  A3T-GCN runs. Encoder `--encoder staeformer`.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
 
