@@ -651,7 +651,7 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] T-GCN / A3T-GCN baselines (finding 4): `a3tgcn_mta` seeds 0–2 (27347–27349),
   `tgcn_mta` seed 0 (27350).
 - [ ] STAEformer baseline (Liu et al., CIKM 2023), seeds 0–2 (27352–27354), seeds 0–1 running
-  since 14:40 (about 36 min/epoch with both on GPU 1), seed 2 after seed 0. Encoder `--encoder staeformer`.
+  since 14:40 (about 36 min/epoch with both on GPU 1), seed 2 resubmitted as 27371 after the admin deleted the held 27354. Encoder `--encoder staeformer`.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
 
