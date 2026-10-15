@@ -17,12 +17,19 @@ source /apps/anaconda3/bin/activate bus_eta
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # GPUs are shared with other users: wait (up to WAIT_H hours) until one has MIN_FREE_GB
-# free, then take the one with the most free memory.
-freest() { nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1; }
+# free, then take the one with the most free memory. GPUs with uncorrected ECC errors since
+# their last reset are skipped (one crashed two runs with "uncorrectable ECC error").
+freest() {
+  nvidia-smi --query-gpu=index,memory.free,ecc.errors.uncorrected.volatile.total --format=csv,noheader,nounits |
+    awk -F', *' '$3 + 0 == 0 {print $1 "," $2}' | sort -t, -k2 -nr | head -1
+}
+free_mb() { local f; f=$(freest | cut -d, -f2); echo "${f:-0}"; }
+sleep "${DELAY:-0}"   # stagger jobs submitted together so they don't grab the same free memory
 for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
-  (( $(freest | cut -d, -f2) >= ${MIN_FREE_GB:-10} * 1024 )) && break
+  (( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) && break
   sleep 300
 done
+(( $(free_mb) >= ${MIN_FREE_GB:-10} * 1024 )) || { echo "no healthy GPU with ${MIN_FREE_GB:-10} GB free"; exit 1; }
 export CUDA_VISIBLE_DEVICES=$(freest | cut -d, -f1)
 mkdir -p jobs/logs
 LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"

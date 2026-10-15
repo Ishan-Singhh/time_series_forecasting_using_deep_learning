@@ -650,8 +650,14 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Historical-average baseline (finding 11).
 - [x] T-GCN / A3T-GCN baselines (finding 4): `a3tgcn_mta` seeds 0–2 (27347–27349),
   `tgcn_mta` seed 0 (27350).
-- [ ] STAEformer baseline (Liu et al., CIKM 2023), seeds 0–2 (27352–27354), seeds 0–1 running
-  since 14:40 (about 36 min/epoch with both on GPU 1), seed 2 resubmitted as 27371 after the admin deleted the held 27354. Encoder `--encoder staeformer`.
+- [ ] STAEformer baseline (Liu et al., CIKM 2023), encoder `--encoder staeformer`, 3 seeds.
+  Seeds 0–1 (27352/27353, GPU 1) crashed in epoch 8 of 10 on 2026-10-15 at 19:13 with
+  "uncorrectable ECC error": GPU 1 shows 4 uncorrected DRAM errors and a row remap pending,
+  which needs an admin GPU reset. Best checkpoints (epoch 7, val 88.79 / 89.47 s) kept as
+  `staeformer_mta_ep7.pt` / `staeformer_mta_s1_ep7.pt`, but they are mid-schedule
+  (OneCycle LR not annealed), so not used for the paper. Rerun as 27375 / 27376 with
+  `jobs/stgnn.pbs` now skipping GPUs with uncorrected ECC errors. Seed 2 (27371, GPU 0) is
+  unaffected, at about 22 min/epoch.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
 
