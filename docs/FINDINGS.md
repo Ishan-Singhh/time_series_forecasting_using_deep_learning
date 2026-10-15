@@ -139,8 +139,8 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | dcrnn_mta | 3 | 97.5 ± 0.2 | 160.7 | 15.3 | 49.1 | +15.7% |
 | tgcn_mta (Zhao et al. 2020) | 1 | 97.8 | 161.8 | 15.3 | 49.1 | +15.5% |
 | a3tgcn_mta (Bai et al. 2021) | 3 | 97.9 ± 0.1 | 161.8 | 15.3 | 49.0 | +15.4% |
-| staeformer_mta (Liu et al. 2023), preliminary | 1 (s2) | 98.6 | 162.7 | 15.3 | 48.9 | +14.8% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
+| staeformer_mta (Liu et al. 2023) | 3 | 98.6 ± 0.0 | 162.3 | 15.4 | 48.8 | +14.8% |
 | convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
 | convlstm_mta (10 ep) | 1 | 100.0 | 162.5 | 15.5 | 48.5 | +13.6% |
@@ -168,7 +168,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | gwnet_mta (3) | −0.38 | 88% | 1e-6 |
 | dcrnn_mta (3) | −0.79 | 98% | 1e-12 |
 | a3tgcn_mta (3) | −1.18 | 100% | 5e-13 |
-| staeformer_mta (seed 2 only, preliminary) | −1.80 | 98% | 3e-12 |
+| staeformer_mta (3) | −1.86 | 98% | 1e-12 |
 | seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
 | convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
 | lgbm_mta | −2.59 | 100% | 5e-13 |
@@ -188,9 +188,9 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
 | dcrnn_mta | 28.9 | 57.5 | 96.3 | 128.3 | 155.0 |
 | a3tgcn_mta | 28.8 | 57.6 | 96.7 | 128.8 | 155.7 |
-| staeformer_mta (s2, prelim.) | 28.8 | 57.8 | 97.3 | 130.0 | 157.0 |
 | convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
+| staeformer_mta | 28.8 | 57.8 | 97.4 | 130.0 | 156.9 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
 | hist_avg | 33.7 | 67.4 | 113.3 | 151.6 | 183.4 |
 | mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
@@ -224,21 +224,25 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
      ties plain T-GCN (−0.01 s, p = 0.8). About 4 min/epoch, the cheapest graph baseline.
    - **STAEformer** (`--encoder staeformer`: no adjacency at all; temporal then spatial
      self-attention over all 2,111 segments, with time-of-day, day-of-week and learned
-     adaptive node embeddings). **Preliminary, seed 2 only** (seeds 0–1 rerunning after
-     the GPU fault): 98.6 s, +14.8% vs MTA, RMSE 162.7. It ties the no-graph model
-     (−0.05 s vs seq, 3 seeds, 43% of days, p = 0.7) and is behind every adjacency-based
-     encoder: A3T-GCN +0.62 s (p = 1e-6), DCRNN +1.01 s, GWNet +1.42 s, ours (final,
-     3 seeds) +1.80 s on 98% of days (p = 3e-12). It beats LightGBM by 0.78 s (p = 0.05).
-     Only at h1 is it near the graph models (28.8 s). The gap grows with horizon
-     (h16–20: 157.0 vs 153.6 s for ours).
-     Its validation MAE (88.86 s) is better than A3T-GCN's (89.07) and seq's (89.76), but
-     the val→test gap is the largest of the neural models (+9.7 s, vs +8.6 for ours and
-     +9.0 for seq). A possible reading is that the learned node and time embeddings fit
-     the training period and transfer less well to the test period (school start), but one seed cannot show this.
-     About 20 min/epoch alone on an L40, 36 min with two runs sharing a GPU: the most
-     expensive baseline. Reading: on a sparse probe network, where most segments have no
-     fresh observation at a given time, attention without the road graph recovers nothing
-     over the bus's own trajectory; the physical adjacency is what carries the gain.
+     adaptive node embeddings). 3 seeds: 98.6 ± 0.0 s, RMSE 162.3, +14.8% vs MTA.
+     - It **ties the no-graph model** (+0.00 s vs seq, seed-averaged, p = 0.3) and is behind
+       every adjacency-based encoder: A3T-GCN +0.68 s (worse on 86% of days, p = 1e-7),
+       DCRNN +1.07 s (p = 4e-10), GWNet +1.47 s (p = 4e-11).
+     - The final model beats it by 1.86 s on 98% of days (p = 1e-12). It beats LightGBM by
+       0.73 s (p = 0.03).
+     - Near the graph models only at h1 (28.8 s); at h16–20 it is level with no graph
+       (156.9 vs 156.8 s; ours 153.6).
+     - Validation vs test: its mean best val MAE (89.07 s) equals A3T-GCN's (89.05) and
+       beats seq's (89.54), yet on test it is 0.7 s behind A3T-GCN. Its val→test gap is the
+       largest of the neural models in all 3 seeds (+9.5 s mean, vs +8.7 ours, +8.8
+       A3T-GCN, +9.0 seq). A likely reading: the learned node and time embeddings fit the
+       training period and transfer less well to the test period (school start); not
+       tested directly.
+     - Cost: about 19–20 min/epoch alone on an L40 (36 min with two runs sharing a GPU),
+       the most expensive baseline.
+     - Reading: on a sparse probe network, where most segments have no fresh observation at
+       a given time, attention without the road graph recovers nothing over the bus's own
+       trajectory. The physical adjacency is what carries the gain.
    - Reading: typed, directed message passing (flow-forward / spillback / corridor, as in
      ours and DCRNN) beats a single undirected adjacency; the encoder ranking follows how
      much of the street structure the graph keeps.
@@ -670,7 +674,7 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Historical-average baseline (finding 11).
 - [x] T-GCN / A3T-GCN baselines (finding 4): `a3tgcn_mta` seeds 0–2 (27347–27349),
   `tgcn_mta` seed 0 (27350).
-- [ ] STAEformer baseline (Liu et al., CIKM 2023), encoder `--encoder staeformer`, 3 seeds.
+- [x] STAEformer baseline (Liu et al., CIKM 2023), encoder `--encoder staeformer`, 3 seeds.
   Seeds 0–1 (27352/27353, GPU 1) crashed in epoch 8 of 10 on 2026-10-15 at 19:13 with
   "uncorrectable ECC error": GPU 1 shows 4 uncorrected DRAM errors and a row remap pending,
   which needs an admin GPU reset. Best checkpoints (epoch 7, val 88.79 / 89.47 s) kept as
@@ -678,7 +682,7 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   (OneCycle LR not annealed), so not used for the paper. `jobs/stgnn.pbs` now skips GPUs with uncorrected ECC errors. A retry pinned to GPU 1
   (27383 / 27384, 21:35) failed on the first host-to-GPU copy with the same ECC error, so
   GPU 1 rejects all CUDA work until reset. Seeds 0 and 1 rerun back to back on GPU 0 as
-  27385 (`SEEDS="0 1"`, waits for 15 GB free). Seed 2 (27371, GPU 0) is
+  27385 (`SEEDS="0 1"`), done 2026-10-16 04:15. Scored in `final` (finding 4). Seed 2 (27371, GPU 0) is
   unaffected, at about 22 min/epoch.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
