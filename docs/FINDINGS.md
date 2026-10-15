@@ -612,6 +612,30 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   89.2 / 89.0 / 89.1% (mean width 383 / 378 / 383 s); quantiles cross on ≤ 0.003% of
   rows. `stgnn_mta_q` seeds 1–2: 89.0 / 88.9%. (`results/uncertainty_final.csv`.)
 
+### 5.9 Paper figures (`python -m bus_eta.figures`, → `docs/figures/*.pdf|png`)
+Numbers are cached in `results/figdata/<figure>.csv`; restyling needs no recomputation.
+Neural models are averaged over 3 seeds unless stated.
+
+- `horizon`: MAE and skill vs `mta_cal` for h = 1..20, all main baselines. Skill peaks at
+  h1 (about 26%, where LightGBM is best) and settles at 15–16% from h6 on. The graph models
+  fan out above no graph as h grows. The historical average is +12.6% at h1 and ≤ 0 from
+  h7 on.
+- `robustness`: §5.1 as a curve (seed 0 of `stgnn_mta` and `stgnn_mta_qsdrop`), with the
+  no-graph model (98.5 s, 3 seeds) as a horizontal line.
+- `permutation`: §5.2 as bars, log scale (original `stgnn_mta`, seed 0, base 96.5 s).
+- `tod`: MAE by issue hour for ours, no graph, LightGBM and `mta_cal`, plus the graph gain.
+  The gain is largest from 11:00 to 17:00 (2.2–3.0 s) and smallest overnight (01–05:
+  0.1–0.8 s), when few other buses are on the road to observe. The dip at 19:00 and the
+  LightGBM spike at 20:00 are a data artefact (§7, UTC day boundary).
+- `map`: graph gain per segment (no-graph minus ours, seed-averaged), over every prediction
+  whose target stop is reached through that segment, all horizons, ≥ 500 predictions.
+  1,945 of 2,111 segments qualify: the graph helps on 97% (median +1.4 s), and only 0.8%
+  are worse by more than 1 s. Largest gains on the midtown and downtown avenues and
+  crosstown streets. The plot is turned 29° so Manhattan's grid runs upright.
+- `trip`: one departure, chosen automatically as the weekday 16–20 h departure with all 20
+  horizons whose mean error for ours is nearest the median (not hand-picked): M11, Sep 16,
+  18:56. Actual vs ours (with the 5–95% interval), no graph and MTA.
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
@@ -640,6 +664,24 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   not verified.
 - Scored on a fixed 25% hash sample of test issues (25.3M predictions over all 42 days);
   see the EVAL_FRAC note in §8.
+- **UTC day boundary (found 2026-10-16 from the `tod` figure).**
+  - The GTFS-rt archive is stored in daily files by UTC date. `arrivals` projects each
+    file on its own, so a trip running across 00:00 UTC (20:00 EDT, 19:00 EST) is split
+    in two, each half without the other's arrivals. That is 3.6–4.1% of trips per day
+    (checked Sep 15/16 and Sep 19/20).
+  - `samples.build_day` takes targets only from the same day's file. Targets after 00:00
+    UTC are lost for issues raised before it: issues at 19:45–20:00 EDT average h = 4.1
+    instead of 8.8, and hour 19 has 10.6 rows per issue instead of about 12.8. That is
+    roughly 0.2M of 26M test rows (about 1%).
+  - Issues just after 00:00 UTC lose their own trip's earlier history (bus-state
+    features), which likely explains LightGBM's +8 s spike at 20:00 (ours +0.4 s
+    relative to its neighbours).
+  - All models are scored on the same rows, so comparisons are unaffected; absolute MAE
+    near 19–20 h is slightly biased (fewer long horizons).
+  - Fix: build arrivals from the vehicle positions of day d plus the neighbouring hours of
+    d ± 1, and assign each trip to one file. Then rebuild samples, features and the
+    nn pack. Retraining all models would take days on one GPU; a cheaper option is to
+    rebuild the test split only and re-score the trained models (decision pending).
 
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
@@ -684,8 +726,9 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   GPU 1 rejects all CUDA work until reset. Seeds 0 and 1 rerun back to back on GPU 0 as
   27385 (`SEEDS="0 1"`), done 2026-10-16 04:15. Scored in `final` (finding 4). Seed 2 (27371, GPU 0) is
   unaffected, at about 22 min/epoch.
-- [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
-  error by time of day, a worked trip example.
+- [x] Figures (§5.9): `horizon`, `robustness`, `permutation`, `tod`, `map`, `trip`.
+- [ ] UTC day-boundary split of trips (§7): fix in `arrivals` / `samples`; decide between
+  re-scoring on a rebuilt test split and a full rebuild with retraining.
 
 ## 9. Reproduction pointers
 - Pipeline: `fetch_rt` → `fetch_static` → `static_gtfs` → `arrivals` → `samples` →
