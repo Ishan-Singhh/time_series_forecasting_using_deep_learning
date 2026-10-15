@@ -136,7 +136,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_mta_sdrop (ablation: obs. dropout only) | 3 | 96.8 ± 0.1 | 158.7 | 15.2 | 49.2 | +16.3% |
 | stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
 | gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
-| dcrnn_mta | 2 (s2 running) | 97.5 ± 0.2 | 160.8 | 15.3 | 49.1 | +15.7% |
+| dcrnn_mta | 3 | 97.5 ± 0.2 | 160.7 | 15.3 | 49.1 | +15.7% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
 | convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
@@ -162,7 +162,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_mta_q (3) | +0.16 | 14% | 2e-6 |
 | stgnn_mta_sdrop (3) | −0.07 | 57% | 0.09 (tie) |
 | gwnet_mta (3) | −0.38 | 88% | 1e-6 |
-| dcrnn_mta (2) | −0.78 | 98% | 9e-13 |
+| dcrnn_mta (3) | −0.79 | 98% | 1e-12 |
 | seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
 | convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
 | lgbm_mta | −2.59 | 100% | 5e-13 |
@@ -180,7 +180,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | ours (stgnn_mta_qsdrop, final) | 28.6 | 57.1 | 95.6 | 127.2 | 153.6 |
 | stgnn_mta (original) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
-| dcrnn_mta | 28.9 | 57.5 | 96.2 | 128.3 | 155.0 |
+| dcrnn_mta | 28.9 | 57.5 | 96.3 | 128.3 | 155.0 |
 | convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
@@ -204,8 +204,8 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
    - Graph WaveNet captures about 75% of our encoder's gain over no-graph.
    - Ours vs GWNet: −0.41 s overall, better on 86% of days (p = 2e-7). The gap grows
      with horizon (−0.14 s at h1, −0.69 s at h16–20).
-   - DCRNN (2 seeds) is 97.5 ± 0.2 s: ours is better by 1.1 s on 98% of days
-     (p = 9e-13, seed 0 vs seed 0). DCRNN also costs 3–10× more GPU time per epoch.
+   - DCRNN (3 seeds) is 97.5 ± 0.2 s: ours is better by 1.1 s on 98% of days
+     (p = 9e-13, seed 0 vs seed 0); the final model, seed-averaged, by 0.8 s (98%, p = 1e-12). DCRNN also costs 3–10× more GPU time per epoch.
    - Ranking ours < GWNet < DCRNN < no graph holds in every horizon band.
 5. **Simple trees are as good one stop ahead.** LightGBM is the best model at h1 (28.3 s
    vs ours 28.6 s). Complexity pays off only at longer horizons; a blend at h1 is an
@@ -608,8 +608,8 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
 - [ ] Optional: conformal recalibration of the quantiles on validation.
 - [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
-- [x] Final protocol (started and scored 2026-10-15; batch size 2048, as in seed 0); only
-  `dcrnn_mta` s2 (27335, about 32 min/epoch) is still training:
+- [x] Final protocol (started and scored 2026-10-15; batch size 2048, as in seed 0); all
+  runs done, `dcrnn_mta` s2 (27335) last, at 11:35:
   - main model `stgnn_mta_qsdrop` seeds 1–2 (27324, 27327);
   - ablation seeds `stgnn_mta_q` / `stgnn_mta_sdrop` s1–2;
   - cold start with the final recipe, `stgnn_mta_v2indqsd_ho_abl` (inductive + quantiles
