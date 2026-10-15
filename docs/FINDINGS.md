@@ -137,6 +137,8 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
 | gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
 | dcrnn_mta | 3 | 97.5 ± 0.2 | 160.7 | 15.3 | 49.1 | +15.7% |
+| tgcn_mta (Zhao et al. 2020) | 1 | 97.8 | 161.8 | 15.3 | 49.1 | +15.5% |
+| a3tgcn_mta (Bai et al. 2021) | 3 | 97.9 ± 0.1 | 161.8 | 15.3 | 49.0 | +15.4% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
 | convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
@@ -164,6 +166,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_mta_sdrop (3) | −0.07 | 57% | 0.09 (tie) |
 | gwnet_mta (3) | −0.38 | 88% | 1e-6 |
 | dcrnn_mta (3) | −0.79 | 98% | 1e-12 |
+| a3tgcn_mta (3) | −1.18 | 100% | 5e-13 |
 | seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
 | convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
 | lgbm_mta | −2.59 | 100% | 5e-13 |
@@ -182,6 +185,7 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 | stgnn_mta (original) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
 | dcrnn_mta | 28.9 | 57.5 | 96.3 | 128.3 | 155.0 |
+| a3tgcn_mta | 28.8 | 57.6 | 96.7 | 128.8 | 155.7 |
 | convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
@@ -209,6 +213,15 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
    - DCRNN (3 seeds) is 97.5 ± 0.2 s: ours is better by 1.1 s on 98% of days
      (p = 9e-13, seed 0 vs seed 0); the final model, seed-averaged, by 0.8 s (98%, p = 1e-12). DCRNN also costs 3–10× more GPU time per epoch.
    - Ranking ours < GWNet < DCRNN < no graph holds in every horizon band.
+   - **T-GCN / A3T-GCN** (`--encoder tgcn|a3tgcn`: a GRU whose gates are one-hop GCNs on one
+     undirected normalised adjacency; A3T-GCN adds attention over the window's hidden
+     states). A3T-GCN, 3 seeds: 97.9 ± 0.1 s, +15.4% vs MTA. Behind DCRNN (+0.39 s, worse on
+     90% of days, p = 3e-8) and GWNet (+0.80 s), ahead of no graph (−0.67 s, 100% of days).
+     The final model beats it by 1.18 s on 100% of days. Its attention adds nothing: seed 0
+     ties plain T-GCN (−0.01 s, p = 0.8). About 4 min/epoch, the cheapest graph baseline.
+   - Reading: typed, directed message passing (flow-forward / spillback / corridor, as in
+     ours and DCRNN) beats a single undirected adjacency; the encoder ranking follows how
+     much of the street structure the graph keeps.
 5. **Simple trees are as good one stop ahead.** LightGBM is the best model at h1 (28.3 s
    vs ours 28.6 s). Complexity pays off only at longer horizons; a blend at h1 is an
    option.
@@ -635,10 +648,10 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
     so a 4× larger sample of the same 42 days adds almost no power. It also keeps every
     side analysis valid, e.g. the random-split model, which trained on the other 75%.
 - [x] Historical-average baseline (finding 11).
-- [ ] T-GCN / A3T-GCN baselines (2026-10-15): `a3tgcn_mta` seeds 0–2 (27347, 27348, 27349),
-  `tgcn_mta` seed 0 (27350, A3T-GCN without its attention). Encoder `--encoder a3tgcn|tgcn`.
-- [ ] STAEformer baseline (Liu et al., CIKM 2023), seeds 0–2 (27352–27354), queued behind the
-  A3T-GCN runs. Encoder `--encoder staeformer`.
+- [x] T-GCN / A3T-GCN baselines (finding 4): `a3tgcn_mta` seeds 0–2 (27347–27349),
+  `tgcn_mta` seed 0 (27350).
+- [ ] STAEformer baseline (Liu et al., CIKM 2023), seeds 0–2 (27352–27354), seeds 0–1 running
+  since 14:40 (about 36 min/epoch with both on GPU 1), seed 2 after seed 0. Encoder `--encoder staeformer`.
 - [ ] Figures: corridor-graph map, MAE vs horizon, robustness curve, permutation bars,
   error by time of day, a worked trip example.
 
