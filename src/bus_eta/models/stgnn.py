@@ -17,7 +17,7 @@ the validation month only.
     python -m bus_eta.models.stgnn --name stgnn_mta
     python -m bus_eta.models.stgnn --name stgnn_no_mta --no-mta
     python -m bus_eta.models.stgnn --name seq_mta --no-graph
-    python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet
+    python -m bus_eta.models.stgnn --name dcrnn_mta --encoder dcrnn     # or gwnet, tgcn, a3tgcn
     python -m bus_eta.models.stgnn --name convlstm_mta --arch convlstm  # Petersen et al. 2019
 
 Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<name>.parquet):
@@ -185,6 +185,17 @@ def load_supports(device):
             sparse_support(cor["src"].to_numpy().astype(np.int64), cor["dst"].to_numpy().astype(np.int64), n, device)]
 
 
+def gcn_support(device):
+    """T-GCN's single graph: all edges made undirected, D^-1/2 (A + I) D^-1/2 (Kipf & Welling)."""
+    e = pl.read_parquet(GRAPH / "edges.parquet")
+    n = pl.read_parquet(GRAPH / "nodes.parquet").height
+    s, d = e["src"].to_numpy().astype(np.int64), e["dst"].to_numpy().astype(np.int64)
+    pairs = np.unique(np.concatenate([np.stack([s, d], 1), np.stack([d, s], 1), np.repeat(np.arange(n)[:, None], 2, 1)]), axis=0)
+    deg = np.bincount(pairs[:, 0], minlength=n).astype(np.float32)
+    vals = 1.0 / np.sqrt(deg[pairs[:, 0]] * deg[pairs[:, 1]])
+    return torch.sparse_coo_tensor(pairs.T, vals, (n, n)).coalesce().to(device)
+
+
 # ---------------------------------------------------------------- model
 class GraphLayer(nn.Module):
     def __init__(self, d, n_supports, dropout):
@@ -303,6 +314,51 @@ class DCRNNEncoder(nn.Module):
         return hs[-1] + self.node_emb                                 # (nb, N, d)
 
 
+class TGCNCell(nn.Module):
+    """T-GCN cell (Zhao et al., IEEE T-ITS 2020): a GRU whose gates are one-hop GCNs."""
+
+    def __init__(self, c_in, d):
+        super().__init__()
+        self.gates = nn.Linear(c_in + d, 2 * d)
+        self.cand = nn.Linear(c_in + d, d)
+
+    def forward(self, x, h, a):                                      # x (nb, N, c_in), h (nb, N, d)
+        gcn = lambda z: diffuse(z, [a], 1, 1)[1]                    # A_hat z
+        r, u = torch.sigmoid(self.gates(gcn(torch.cat([x, h], -1)))).chunk(2, -1)
+        c = torch.tanh(self.cand(gcn(torch.cat([x, r * h], -1))))
+        return u * h + (1 - u) * c
+
+
+class A3TGCNEncoder(nn.Module):
+    """A3T-GCN encoder (Bai et al., ISPRS IJGI 2021): a T-GCN over the WINDOW bins, then
+    attention over its hidden states at every bin (a two-layer scorer, softmax over time)
+    gives each segment's context vector. attention=False is plain T-GCN (last hidden state).
+    Both use the single undirected normalised adjacency of the papers, not our typed supports."""
+
+    def __init__(self, n_nodes, d, dropout, a_hat, attention=True):
+        super().__init__()
+        self.a_hat, self.d, self.attention = a_hat, d, attention
+        self.cell = TGCNCell(4, d)
+        if attention:
+            self.score = nn.Sequential(nn.Linear(d, d), nn.Tanh(), nn.Linear(d, 1))
+        self.node_emb = nn.Parameter(torch.randn(n_nodes, d) * 0.02)
+        self.drop = nn.Dropout(dropout)
+
+    @torch.autocast("cuda", enabled=False)
+    def forward(self, x):                                             # (nb, W, N, 4)
+        x = x.float()
+        nb, w, n, _ = x.shape
+        h = x.new_zeros(nb, n, self.d)
+        hs = []
+        for t in range(w):
+            h = self.cell(x[:, t], h, self.a_hat)
+            hs.append(h)
+        if self.attention:
+            hs = torch.stack(hs, 1)                                   # (nb, W, N, d)
+            h = (torch.softmax(self.score(hs), dim=1) * hs).sum(1)
+        return self.drop(h) + self.node_emb                           # (nb, N, d)
+
+
 class GWNetEncoder(nn.Module):
     """Graph WaveNet encoder (Wu et al., IJCAI 2019): gated dilated causal temporal convs
     (dilations 1,2 x4, receptive field 13) interleaved with diffusion GCNs over the fixed
@@ -344,7 +400,7 @@ class GWNetEncoder(nn.Module):
         return out.transpose(1, 2) + self.node_emb                    # (nb, N, d)
 
 
-ENCODERS = ("ours", "dcrnn", "gwnet")
+ENCODERS = ("ours", "dcrnn", "gwnet", "tgcn", "a3tgcn")
 
 
 def load_node_feats(device, which="all") -> torch.Tensor:
@@ -367,6 +423,8 @@ def make_encoder(kind, n_nodes, d, dropout, supports, node_feats=None):
         return DCRNNEncoder(n_nodes, d, 2, dropout, supports)
     if kind == "gwnet":
         return GWNetEncoder(n_nodes, d, dropout, supports)
+    if kind in ("tgcn", "a3tgcn"):
+        return A3TGCNEncoder(n_nodes, d, dropout, gcn_support(supports[0].device), attention=kind == "a3tgcn")
     return GraphEncoder(n_nodes, d, 2, dropout, supports, node_feats)
 
 
