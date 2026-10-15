@@ -130,12 +130,15 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 
 | Model | Seeds | MAE (s) | RMSE | MAPE % | ≤ 60 s % | Skill vs mta_cal |
 |---|---|---|---|---|---|---|
-| **stgnn_mta (ours)** | 3 | **96.7 ± 0.1** | **158.8** | 15.2 | 49.3 | **+16.4%** |
+| **stgnn_mta_qsdrop (ours, final: quantiles + obs. dropout)** | 3 | **96.7 ± 0.1** | **158.8** | 15.2 | 49.3 | **+16.4%** |
+| stgnn_mta_q (ablation: quantiles only) | 3 | 96.6 ± 0.1 | 158.5 | 15.2 | 49.3 | +16.5% |
+| stgnn_mta (ablation: original, L1) | 3 | 96.7 ± 0.1 | 158.8 | 15.2 | 49.3 | +16.4% |
+| stgnn_mta_sdrop (ablation: obs. dropout only) | 3 | 96.8 ± 0.1 | 158.7 | 15.2 | 49.2 | +16.3% |
 | stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
 | gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
-| dcrnn_mta | 2 | 97.5 ± 0.2 | 160.8 | 15.3 | 49.1 | +15.7% |
+| dcrnn_mta | 2 (s2 running) | 97.5 ± 0.2 | 160.8 | 15.3 | 49.1 | +15.7% |
 | seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
-| convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 1 | 99.0 | 161.2 | 15.5 | 48.7 | +14.4% |
+| convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
 | lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
 | convlstm_mta (10 ep) | 1 | 100.0 | 162.5 | 15.5 | 48.5 | +13.6% |
 | seq_no_mta | 3 | 99.9 ± 0.2 | 166.2 | 15.6 | 48.5 | +13.7% |
@@ -149,15 +152,36 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
   `mta_cal`. Median bias is −2.0 s for ours and +7.4 s for `mta_cal`. Within 120 s:
   73.5% vs 68.0%.
 - Test rows on common support: 25,335,879 over 42 days.
+- Final-protocol table: `results/final*.csv` (`python -m bus_eta.evaluate --name final`).
+  Seed-averaged paired tests (daily MAE averaged over seeds, 42 days;
+  `python -m bus_eta.paired`):
+
+| Final model (qsdrop, 3 seeds) vs | ΔMAE (s) | Days better | Wilcoxon p |
+|---|---|---|---|
+| stgnn_mta (original, 3) | +0.06 | 40% | 0.1 (tie) |
+| stgnn_mta_q (3) | +0.16 | 14% | 2e-6 |
+| stgnn_mta_sdrop (3) | −0.07 | 57% | 0.09 (tie) |
+| gwnet_mta (3) | −0.38 | 88% | 1e-6 |
+| dcrnn_mta (2) | −0.78 | 98% | 9e-13 |
+| seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
+| convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
+| lgbm_mta | −2.59 | 100% | 5e-13 |
+
+  - Observation dropout costs a small but consistent 0.16 s versus quantiles alone (worse on
+    86% of days). That is the price of robustness (§5.1, §5.8: 98.3 vs 104.5 s at 90%
+    hidden) and is below the 0.4 s gap to the next-best encoder.
+  - ConvLSTM (3 seeds) ties LightGBM (+0.08 s, p = 0.2); GWNet beats no graph by 1.5 s
+    (100% of days).
 
 **MAE by horizon band (s):**
 
 | Model | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
 |---|---|---|---|---|---|
-| ours (stgnn_mta) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
+| ours (stgnn_mta_qsdrop, final) | 28.6 | 57.1 | 95.6 | 127.2 | 153.6 |
+| stgnn_mta (original) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
 | gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
 | dcrnn_mta | 28.9 | 57.5 | 96.2 | 128.3 | 155.0 |
-| convlstm_mta_e20 | 28.9 | 58.1 | 97.6 | 130.5 | 158.2 |
+| convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
 | seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
 | lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
 | mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
@@ -394,6 +418,14 @@ Results on the 6 held-out routes (MAE, s):
     with the gap growing from 0.7 s at h1 to 5.5 s at h16–20.
   - Cold-start ranking: inductive graph 101.1 < seq + ablation 103.0 < LightGBM 104.8–105.0
     < transductive graph 110.6 < mta_cal 115.6.
+- **Cold start with the final recipe** (`stgnn_mta_v2indqsd_ho_abl`: inductive + quantiles
+  + observation dropout, 3 seeds; `results/coldstart_final*.csv`):
+  - 101.32 ± 0.05 s on the held-out routes, a tie with the L1 inductive model (101.22;
+    +0.11 s, p = 0.5). The final recipe costs nothing on cold start.
+  - Seed-averaged paired: beats no graph + ablation by 1.8 s (95% of days, p = 6e-12),
+    held-out LightGBM by 3.75 s and the transductive graph by 9.2 s (both 100% of days).
+  - Its 90% intervals cover 88.8–89.0% (all routes, width about 385 s), so the ranges
+    carry over to the inductive variant.
 
 ### 5.5 School calendar, traffic signals and bus lanes
 - Segment attributes check against reality:
@@ -522,6 +554,10 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - Shuffling the network state costs +21.7 s (vs +33 for the plain model).
 - Proposal: make this the paper's main model. Train it for 3 seeds in the final
   protocol, alongside the inductive variant for cold start.
+- **Final protocol, 3 seeds (seed 0 + 27324, 27327):** MAE 96.75 ± 0.11 s, RMSE 158.8,
+  +16.4% vs `mta_cal`; ties the original model (§4 table). 90% interval coverage per seed:
+  89.2 / 89.0 / 89.1% (mean width 383 / 378 / 383 s); quantiles cross on ≤ 0.003% of
+  rows. `stgnn_mta_q` seeds 1–2: 89.0 / 88.9%. (`results/uncertainty_final.csv`.)
 
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
@@ -549,7 +585,8 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
   (§5.1).
 - Bus-lane direction isn't matched (parallel heading only); OSM signal completeness is
   not verified.
-- Evaluated on a 25% hash sample of test issues so far (to be 100% for final tables).
+- Scored on a fixed 25% hash sample of test issues (25.3M predictions over all 42 days);
+  see the EVAL_FRAC note in §8.
 
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
@@ -571,7 +608,8 @@ Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
 - [ ] Optional: conformal recalibration of the quantiles on validation.
 - [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
-- [ ] Final protocol (started 2026-10-15; batch size fixed at 2048, as in seed 0):
+- [x] Final protocol (started and scored 2026-10-15; batch size 2048, as in seed 0); only
+  `dcrnn_mta` s2 (27335, about 32 min/epoch) is still training:
   - main model `stgnn_mta_qsdrop` seeds 1–2 (27324, 27327);
   - ablation seeds `stgnn_mta_q` / `stgnn_mta_sdrop` s1–2;
   - cold start with the final recipe, `stgnn_mta_v2indqsd_ho_abl` (inductive + quantiles
