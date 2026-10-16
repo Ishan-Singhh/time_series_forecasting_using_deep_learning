@@ -223,9 +223,12 @@ def _init():
                                    "sched_dep_s", "dist_m"])
 
 
+FORCE = False
+
+
 def _run(d: date) -> str:
     out = OUT / f"{d.isoformat()}.parquet"
-    if out.exists():
+    if out.exists() and not FORCE:
         return f"{d} exists"
     df = build_day(d, _ST)
     if df is None:
@@ -240,7 +243,10 @@ def main() -> None:
     p.add_argument("--end", type=date.fromisoformat, required=True)
     # Each day builds a ~5M-row long grid, so use half the cores as workers (2 threads each).
     p.add_argument("--workers", type=int, default=max(1, n_cpus() // 2))
+    p.add_argument("--force", action="store_true", help="rebuild days whose output already exists")
     args = p.parse_args()
+    global FORCE
+    FORCE = args.force
     run_days(_run, day_range(args.start, args.end), args.workers, initializer=_init)
 
 

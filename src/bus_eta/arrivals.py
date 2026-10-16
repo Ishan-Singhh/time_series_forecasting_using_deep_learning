@@ -12,8 +12,7 @@ interpolation the label involved; downstream code filters on them. arr_seen / de
 the timestamps of the ping that revealed each crossing: the earliest moment a real-time
 system could know about it, which is what causal features and issue times must use.
 
-Output: data/interim/arrivals/<YYYY-MM-DD>.parquet, keyed by service date (the feed's
-start_date). The RT archive is split into UTC days, and a service day runs from ~04:00 UTC
+Output: data/interim/arrivals/<YYYY-MM-DD>.parquet, keyed by service date. The RT archive is split into UTC days, and a service day runs from ~04:00 UTC
 on d to ~08:00 UTC on d+1, so day d reads the archive files of d and d+1 and keeps the trips
 that started on d. Each trip instance is therefore built once, from its whole track; keying
 by archive file instead cut every trip running at 00:00 UTC (20:00 EDT) in two.
@@ -93,11 +92,26 @@ def build_day(d: date, static) -> pl.DataFrame | None:
     vp = (
         pl.read_parquet(vp_paths, columns=["trip_id", "start_date", "vehicle_id", "timestamp",
                                            "latitude", "longitude", "stop_id"])
-        .filter(pl.col("start_date") == d.strftime("%Y%m%d"))
+        .filter(pl.col("start_date").is_in([(d - timedelta(days=1)).strftime("%Y%m%d"), d.strftime("%Y%m%d")]))
         .drop_nulls(["trip_id", "start_date", "latitude", "longitude", "timestamp"])
         .unique(["vehicle_id", "timestamp"], keep="first")  # the two files may repeat a ping at the seam
         .join(trips.select("pick", "trip_id", "shape_id", "pattern_id"), on="trip_id", how="inner")
     )
+    # The feed's start_date is not always the service date: on 2026-03-08 (the DST change) MTA
+    # published every Sunday trip with start_date 20260307. Use the date implied by the trip's
+    # first ping and its scheduled first departure (nearest local noon - 12 h, so robust to
+    # delays < 12 h and to DST) and keep the trips of d. start_date stays the feed's key, which
+    # is what TripUpdates use.
+    first_dep = stop_times.filter(pl.col("stop_idx") == 0).unique("trip_id").select("trip_id", "sched_dep_s")
+    svc = (
+        vp.group_by("trip_id", "start_date").agg(pl.col("timestamp").min().cast(pl.Int64).alias("_t0"))
+        .join(first_dep, on="trip_id")
+        .with_columns(pl.from_epoch(pl.col("_t0") - pl.col("sched_dep_s") + 43200, time_unit="s")
+                      .dt.replace_time_zone("UTC").dt.convert_time_zone(TIMEZONE).dt.date().alias("service_date"))
+        .filter(pl.col("service_date") == d)
+        .select("trip_id", "start_date", "service_date")
+    )
+    vp = vp.join(svc.select("trip_id", "start_date"), on=["trip_id", "start_date"])
     # One vehicle per trip instance: the one that reported it most.
     main_vehicle = (
         vp.group_by("trip_id", "start_date", "vehicle_id").len()
@@ -153,10 +167,11 @@ def build_day(d: date, static) -> pl.DataFrame | None:
         .join(stop_times.select("trip_id", "stop_idx", "stop_sequence", "sched_arr_s", "sched_dep_s"),
               on=["trip_id", "stop_idx"])
         .join(main_vehicle, on=["trip_id", "start_date"])
-        .with_columns(pl.col("start_date").str.strptime(pl.Date, "%Y%m%d").alias("service_date"))
+        .join(svc, on=["trip_id", "start_date"])
+        # GTFS times count from "noon minus 12 h", which is local midnight except on DST days
         .with_columns(
-            pl.col("service_date").cast(pl.Datetime("us")).dt.replace_time_zone(TIMEZONE)
-            .dt.epoch("s").alias("_midnight"))
+            ((pl.col("service_date").cast(pl.Datetime("us")) + pl.duration(hours=12)).dt.replace_time_zone(TIMEZONE)
+             .dt.epoch("s") - 43200).alias("_midnight"))
         .with_columns((pl.col("_midnight") + pl.col("sched_arr_s")).alias("sched_arr"),
                       (pl.col("_midnight") + pl.col("sched_dep_s")).alias("sched_dep"))
         .drop("_midnight", "sched_arr_s", "sched_dep_s")
@@ -176,15 +191,20 @@ def _init():
     _STATIC = load_static()
 
 
+FORCE = False
+
+
 def _run(d: date) -> str:
     out = OUT / f"{d.isoformat()}.parquet"
-    if out.exists():
+    if out.exists() and not FORCE:
         return f"{d} exists"
     df = build_day(d, _STATIC)
     if df is None:
         return f"{d} no data"
     write_atomic(df, out)
-    return f"{d} {df.height:,} stop events, {df.select('trip_id', 'start_date').n_unique():,} trips"
+    t = df.select("trip_id", "start_date", "service_date").unique()
+    moved = t.filter(pl.col("start_date") != pl.col("service_date").dt.strftime("%Y%m%d")).height
+    return f"{d} {df.height:,} stop events, {t.height:,} trips ({moved:,} with a feed start_date that isn't the service date)"
 
 
 def main() -> None:
@@ -192,7 +212,10 @@ def main() -> None:
     p.add_argument("--start", type=date.fromisoformat, required=True)
     p.add_argument("--end", type=date.fromisoformat, required=True)
     p.add_argument("--workers", type=int, default=n_cpus())
+    p.add_argument("--force", action="store_true", help="rebuild days whose output already exists")
     args = p.parse_args()
+    global FORCE
+    FORCE = args.force
     run_days(_run, day_range(args.start, args.end), args.workers, initializer=_init)
 
 

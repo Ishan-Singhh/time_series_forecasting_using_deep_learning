@@ -1,5 +1,5 @@
 #PBS -N bus_eta_rebuild
-#PBS -l select=1:ncpus=40:mem=200gb,walltime=24:00:00
+#PBS -l select=1:ncpus=48:mem=240gb,walltime=24:00:00
 #PBS -q workq
 #PBS -j oe
 #
@@ -15,13 +15,13 @@ export PYTHONUNBUFFERED=1
 mkdir -p jobs/logs
 LOG="jobs/logs/rebuild_${PBS_JOBID%%.*}.log"
 R="--start 2026-03-01 --end 2026-10-11"
-step() { echo "== $* ($(date))"; /usr/bin/time -f "   %e s, %M KB" python -m "$@" || exit 1; }
+step() { echo "== $* ($(date))"; local t=$SECONDS; python -m "$@" || exit 1; echo "   $((SECONDS - t)) s"; }
 {
   echo "node $(hostname), NCPUS=${NCPUS}"
   for s in ${STEPS:-arrivals samples network_state packs}; do
     case $s in
-      arrivals)      step bus_eta.arrivals $R ;;
-      samples)       step bus_eta.samples $R ;;
+      arrivals)      step bus_eta.arrivals $R --force ;;
+      samples)       step bus_eta.samples $R --force ;;
       network_state) step bus_eta.network_state ;;
       packs)         step bus_eta.models.stgnn_data && step bus_eta.models.stgnn_data --out nn_v2 --v2 ;;
     esac

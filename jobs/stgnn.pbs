@@ -13,6 +13,9 @@
 #   qsub -v VARIANTS="stgnn_mta",EPOCHS=20,TAG=e20 jobs/stgnn.pbs        # -> stgnn_mta_e20
 #   qsub -v VARIANTS="staeformer_mta",GPU=1 jobs/stgnn.pbs                 # pin a GPU
 #   qsub -v VARIANTS="stgnn_mta",TAG=ho,EXTRA="--holdout-routes M102 M7" jobs/stgnn.pbs
+#   qsub -v PLAN=jobs/plans/final_a.txt jobs/stgnn.pbs                     # a list of runs, in order
+# A PLAN file has one run per line: `<name> <seed> [extra trainer flags]` (# = comment). Runs
+# whose test predictions already exist are skipped, so a crashed plan can just be resubmitted.
 
 cd "${PBS_O_WORKDIR}"
 source /apps/anaconda3/bin/activate bus_eta
@@ -42,6 +45,15 @@ mkdir -p jobs/logs
 LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
 {
   echo "node $(hostname), NCPUS=${NCPUS}, GPU ${CUDA_VISIBLE_DEVICES}"; nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
+  if [[ -n "$PLAN" ]]; then
+    while read -r name seed extra; do
+      [[ -z "$name" || $name == \#* ]] && continue
+      [[ -f data/processed/preds/$name.parquet || -f data/processed/preds/analysis/$name.parquet ]] && { echo "skip $name: done"; continue; }
+      python -m bus_eta.models.stgnn --name "$name" --seed "$seed" --epochs "${EPOCHS:-10}" --patience 3 \
+        --max-bins "${MAX_BINS:-16}" --batch-size "${BATCH:-2048}" $extra || exit 1
+    done < "$PLAN"
+    VARIANTS=" "   # nothing else to run
+  fi
   for v in ${VARIANTS:-stgnn_mta seq_mta stgnn_no_mta seq_no_mta}; do
     flags=""
     [[ $v == seq_* ]] && flags="$flags --no-graph"
