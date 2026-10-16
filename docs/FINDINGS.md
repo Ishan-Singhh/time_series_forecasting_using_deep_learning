@@ -68,6 +68,48 @@ Last updated: 2026-10-14 (branch `restart-multistep-eta`)
   are dropped as ambiguous. Unchecked, they had multiplied across model joins in an early
   evaluation (bug found and fixed).
 
+### Data rebuild (2026-10-16, branch `fix-utc-day-boundary`)
+Two data bugs were found and fixed. Everything downstream was rebuilt (27396) and every model
+is being retrained. The old build is kept in `data/archive_utc/`.
+1. **UTC day files split trips (§7).**
+   - Arrivals are now keyed by service date. Day d is built from the archive files of d and
+     d+1 and keeps the trips of d, so every trip is projected once, from its whole track.
+   - Samples take other buses' runs, dwells and headways from days d−1..d+1. These are as-of
+     joins on reveal time, so they stay causal. MTA predictions come from files d and d+1.
+   - Pilot, Sep 14–18:
+     - 0 trips in two files (was 1,178);
+     - targets per issue at 19:45–20:00 rose to 12.86 (was 4.74);
+     - +0.85% targets;
+     - targets already present were 99.99% identical.
+   - **The old build also lost most traversals of split trips.** Each half kept a row for
+     every stop of the trip: rows with NaN times passed the not-null filter, because NaN was
+     only turned into null after filtering. In `network_state`, and in `samples`' real-time
+     history, the two copies of each stop interleaved, which broke the consecutive-stop
+     test.
+     - On Sep 16, the 299 split trips gave 2,624 traversals, against 10,752 after the fix.
+     - Over the study period, traversals went from 40.83M to 42.70M (+1.87M, +4.6%).
+       Almost all of the gain is at 18–21 h local: hour 19 went from 1.38M to 2.25M and
+       hour 20 from 1.20M to 2.02M. Every other hour changed by < 0.1%.
+     - Stop rows fell from 54.8M to 52.1M, because the duplicate NaN rows are gone.
+     - So the old network state was about 40% blind at 19–21 h, when the boundary is
+       00:00 UTC.
+2. **The feed's start_date was wrong on the DST change.**
+   - On 2026-03-08, MTA published every Sunday trip (5,782 trips) with start_date
+     20260307. The day had no file of its own; its trips were filed under Mar 7 with
+     schedules 24 h off.
+   - The service date is now taken from a trip's first ping and its scheduled first
+     departure. start_date stays the join key with TripUpdates.
+   - Scheduled times are now counted from GTFS's "noon − 12 h", not from local midnight.
+     The two differ by an hour on DST days: Mar 8's median schedule delay was −3,522 s and
+     is now 78 s.
+
+Rebuilt sizes:
+- network state: 42.7M traversals, 26.0% of node-bins observed (was 25%);
+- packs:
+  - train 5.83M issues / 76.35M targets (was 75.5M);
+  - val 603k / 7.97M;
+  - test 2.00M / **26.29M** (was 26.0M).
+
 ### Splits and protocol (paper section: Experimental setup)
 - **Chronological split:**
   - train 2026-03-01 → 07-31;
@@ -664,7 +706,9 @@ Neural models are averaged over 3 seeds unless stated.
   not verified.
 - Scored on a fixed 25% hash sample of test issues (25.3M predictions over all 42 days);
   see the EVAL_FRAC note in §8.
-- **UTC day boundary (found 2026-10-16 from the `tod` figure).**
+- **UTC day boundary (found 2026-10-16 from the `tod` figure; fixed the same day and
+  everything rebuilt and retrained on branch `fix-utc-day-boundary`, see §2 "Data rebuild").**
+  The description below is of the old build (`data/archive_utc/`).
   - The GTFS-rt archive is stored in daily files by UTC date. `arrivals` projects each
     file on its own, so a trip running across 00:00 UTC (20:00 EDT, 19:00 EST) is split
     in two, each half without the other's arrivals. That is 3.6–4.1% of trips per day
@@ -678,10 +722,8 @@ Neural models are averaged over 3 seeds unless stated.
     relative to its neighbours).
   - All models are scored on the same rows, so comparisons are unaffected; absolute MAE
     near 19–20 h is slightly biased (fewer long horizons).
-  - Fix: build arrivals from the vehicle positions of day d plus the neighbouring hours of
-    d ± 1, and assign each trip to one file. Then rebuild samples, features and the
-    nn pack. Retraining all models would take days on one GPU; a cheaper option is to
-    rebuild the test split only and re-score the trained models (decision pending).
+  - Fix (user decision 2026-10-16: fix and retrain everything): arrivals are keyed by
+    service date, built from the archive files of d and d+1; see §2 "Data rebuild".
 
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
@@ -727,8 +769,25 @@ Neural models are averaged over 3 seeds unless stated.
   27385 (`SEEDS="0 1"`), done 2026-10-16 04:15. Scored in `final` (finding 4). Seed 2 (27371, GPU 0) is
   unaffected, at about 22 min/epoch.
 - [x] Figures (§5.9): `horizon`, `robustness`, `permutation`, `tod`, `map`, `trip`.
-- [ ] UTC day-boundary split of trips (§7): fix in `arrivals` / `samples`; decide between
-  re-scoring on a rebuilt test split and a full rebuild with retraining.
+- [x] UTC day-boundary split of trips (§7) and the DST start_date bug: fixed in `arrivals` /
+  `samples` (2026-10-16, branch `fix-utc-day-boundary`); data rebuilt (27396).
+- [ ] Final protocol retrained on the rebuilt data (2026-10-16). Every model now uses one
+  setting, batch 2048 and max-bins 16; the old runs had mixed settings, e.g. `seq_mta`
+  seeds 0–1 at batch 1024, `dcrnn_mta` seed 0 at 4096 and seeds 1–2 at max-bins 48.
+  - CPU: baselines 27397, hist_avg 27398, lgbm_no_mta 27399, lgbm_mta 27400,
+    lgbm_mta_randsplit 27401, lgbm_mta_ho 27402, rashvand_mlp 27403 / _mtalabel 27404.
+  - GPU, all on GPU 0 (GPU 1 still awaits an admin reset), three chains
+    `jobs/plans/final_{a,b,c}.txt` (27405–27407, `stgnn.pbs PLAN=`). A: headline
+    qsdrop, stgnn_mta, seq_mta, STAEformer, A3T-GCN, T-GCN, ConvLSTM e20, q, sdrop. B: DCRNN,
+    stgnn_no_mta. C: Graph WaveNet, seq_no_mta, the cold-start set.
+  - Then re-run the evaluations and analyses (final, paired, uncertainty, error analysis,
+    robustness and permutation, figures) and replace every number in this file. Old
+    numbers stay in git history (branch `restart-multistep-eta`).
+- [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
+  better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
+  Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
+  static feed versions (Brooklyn: Feb 26, Mar 28, Apr 9, Jun 24, Sep 3), with 92–95% RT
+  trip-id coverage in each period.
 
 ## 9. Reproduction pointers
 - Pipeline: `fetch_rt` → `fetch_static` → `static_gtfs` → `arrivals` → `samples` →

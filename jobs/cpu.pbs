@@ -1,9 +1,9 @@
 #PBS -N bus_eta_cpu
-#PBS -l select=1:ncpus=40:mem=200gb,walltime=24:00:00
+#PBS -l select=1:ncpus=48:mem=240gb,walltime=24:00:00
 #PBS -q workq
 #PBS -j oe
 #
-# Run any bus_eta module on a 40-core CPU node. Modules size their worker pools from
+# Run any bus_eta module on a 48-core CPU node. Modules size their worker pools from
 # NCPUS (set by PBS). Submit from the repo root:
 #
 #   qsub -v MOD=arrivals,ARGS="--start 2026-03-01 --end 2026-10-11" jobs/cpu.pbs
