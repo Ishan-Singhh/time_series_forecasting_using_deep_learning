@@ -416,42 +416,49 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
   is**, and it actually learns worse (43.9 vs 37.8 s).
 - Our models at h1: 28.3–28.6 s against actual arrivals.
 - **Random-split leakage** (`lgbm_mta_randsplit`): the same LightGBM recipe, but train / val
-  issues drawn at random from every day Mar 1–Oct 11 (15% of issues, 79.6M rows, about the
+  issues drawn at random from every day Mar 1–Oct 11 (15% of issues, 80.5M rows, about the
   size of the chronological 20% run). The scored test issues are excluded from training, so
   the test rows themselves are never seen, only their neighbours: other buses on the same
   trip and day, and the same days' traffic.
-  - Scored on the common support, which excludes 9,399 boundary issues (0.47%: Aug 31 trips
-    stored in the Sep 1 file; see the note below); 41 test days, 25.2M rows.
+  - Rebuilt data (2026-10-16, job 27401; `results/randsplit*.csv`): scored on the common
+    support of the main table, 41 test days, 25.6M rows. The boundary issues of the old
+    build are gone (see the bug note below), so no rows need dropping.
 
 | Model | MAE (s) | RMSE | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
 |---|---|---|---|---|---|---|---|
-| lgbm_mta, chronological split | 99.3 | 183.6 | 28.3 | 58.0 | 98.0 | 131.1 | 158.6 |
-| lgbm_mta_randsplit, random split | **96.6** | 177.1 | 28.4 | 57.2 | 95.9 | 126.9 | 152.6 |
-| stgnn_mta (ours, chronological) | 96.7 | 159.0 | 28.7 | 57.1 | 95.6 | 127.2 | 153.4 |
+| lgbm_mta, chronological split | 99.06 | 163.3 | 28.36 | 57.81 | 97.63 | 130.38 | 157.58 |
+| lgbm_mta_randsplit, random split | **96.38** | 157.2 | 28.37 | 57.09 | 95.43 | 126.26 | **151.66** |
+| stgnn_mta (ours, chronological, seed 0) | 96.76 | 156.8 | 28.50 | 56.93 | 95.37 | 126.95 | 153.38 |
+| stgnn_mta_qsdrop (headline, seed 0) | 97.03 | 157.3 | 28.51 | 57.04 | 95.62 | 127.35 | 153.85 |
 
-  - **The random split makes the same model look 2.8 s (2.8%) better**: 99.2 → 96.4 s daily
-    mean, better on 100% of 41 days, p = 9e-13. Skill vs MTA rises from +14.2% to +16.6%.
-  - **That is enough to erase the whole graph advantage.** Evaluated this way, plain
-    LightGBM ties our graph model (−0.18 s, p = 0.1). A paper using a random split could
-    report a tree model "as good as" a spatio-temporal GNN.
-  - The inflation grows with horizon: +0.1 s at h1 (no gain), −6.0 s at h16–20. That is the
+  - **The random split makes the same model look 2.84 s (2.9%) better**: 99.19 → 96.35 s
+    daily mean, better on 100% of 41 days, p = 9e-13. Skill vs MTA rises from +14.7% to
+    +17.0%. (Old build: 2.8 s, the same.)
+  - **That is enough to reverse the graph advantage.** Evaluated this way, plain LightGBM
+    *beats* our graph model: −0.44 s vs stgnn_mta (3 seeds; better on 73% of days,
+    p = 0.001) and −0.69 s vs the headline model (83% of days, p = 2e-6). On the old build it
+    was a tie (−0.18 s, p = 0.1). A paper using a random split would report a tree model
+    beating a spatio-temporal GNN, the opposite of the honest ranking (§4: the graph model
+    beats LightGBM by about 2 s on 100% of days).
+  - The inflation grows with horizon: +0.01 s at h1 (no gain), −5.9 s at h16–20. That is the
     signature of neighbour leakage: issues of the same trip a few minutes apart share most
     of their target stops, and a long-horizon target is one that another training issue
     already observed.
   - Caveat: the random split also trains on the test period itself (the D6 schedule pick and
     school-start traffic). This number is the total effect of both; a day-blocked random
     split (whole days shuffled) would separate them.
-  - The validation MAE is not comparable across the splits (random val 90.7 spans all
-    months; chronological val 89.6–89.7 is August only). Early stopping never triggered
-    (20,000 rounds): the leaked validation set keeps rewarding memorisation.
+  - The validation MAE is not comparable across the splits (random val 90.50 spans all
+    months; chronological val 89.9 is August only). Early stopping again never triggered
+    (20,000 rounds, best 19,995): the leaked validation set keeps rewarding memorisation.
   - **Bug found and fixed on the way.** The first scoring stopped on the overlap assertion:
     1,404 scored test issues (0.07%) were in `random_train`. Late trips of Aug 31 are stored
     in the Sep 1 sample file; `load("test")` selects by file but the exclusion used
     `service_date`. The fix (commit 0d17a05) matches on the file date, which was checked to
     give 0 overlap. The saved model was rescored with `--predict-only --drop-boundary`,
-    which leaves out all 9,399 boundary issues, including the 1,404.
+    which leaves out all 9,399 boundary issues, including the 1,404. (Old build. Files are now
+    keyed by service date, so file date = service date and this cannot recur.)
 - **Paper point:** the two pitfalls together (wrong label: 31% optimistic; random split: a
-  further 2.8 s, more at long horizons) are larger than most of the model differences in
+  further 2.8 s, more at long horizons, enough to flip the GNN vs tree ranking) are larger than most of the model differences in
   this literature. Our protocol (GPS truth, chronological split, daily paired tests) is a
   contribution in itself.
 
@@ -467,7 +474,55 @@ A random share of (bin, segment) observations is hidden, as if fewer buses repor
 - **Spatial input ablation (BusTr):** with probability 0.3 per training issue, the route
   id and static segment ids are replaced by "unknown".
 
-Results on the 6 held-out routes (MAE, s):
+**Rebuilt data (2026-10-16; `results/coldstart_final*.csv`, 41 days, 5.20M rows on the 6
+held-out routes).** All runs retrained, 3 seeds unless marked; pooled MAE, mean ± sd over
+seeds:
+
+| Model | All | h1 | h16–20 | Skill vs mta_cal |
+|---|---|---|---|---|
+| stgnn_mta, trained *with* these routes (upper bound) | 96.82 ± 0.10 | 28.90 | 152.35 | +16.6% |
+| headline qsdrop, trained with these routes | 97.08 ± 0.20 | 28.89 | 152.86 | +16.4% |
+| seq_mta, trained with these routes | 98.80 ± 0.10 | 29.35 | 155.84 | +14.9% |
+| lgbm_mta, trained with these routes (1 run) | 99.02 | 28.77 | 156.38 | +14.7% |
+| **inductive graph, held out + ablation** (`v2ind_ho_abl`) | **101.30 ± 0.36** | **29.87** | **158.80** | **+12.8%** |
+| inductive, segment length only (1 seed) | 101.30 | 29.88 | 158.73 | +12.8% |
+| inductive, no segment features (1 seed) | 101.54 | 29.86 | 159.33 | +12.6% |
+| inductive final recipe (quantiles + obs. dropout, `v2indqsd`) | 101.90 ± 0.19 | 29.95 | 159.87 | +12.3% |
+| seq, held out + ablation | 103.51 ± 0.20 | 30.43 | 162.81 | +10.9% |
+| LightGBM, held out (1 run) | 105.20 | 30.51 | 164.31 | +9.4% |
+| transductive graph, held out + ablation (1 seed) | 110.09 | 30.93 | 173.75 | +5.2% |
+| mta_cal | 116.14 | 40.79 | 180.32 | 0 |
+
+Paired daily MAE, seeds averaged (41 days; Wilcoxon):
+
+| Comparison | ΔMAE (s) | Days better | p |
+|---|---|---|---|
+| inductive vs seq + ablation | −2.29 | 98% | 3e-11 |
+| inductive vs LightGBM held out | −4.03 | 100% | 9e-13 |
+| inductive vs transductive graph held out | −8.72 | 100% | 9e-13 |
+| inductive final recipe (qsd) vs inductive L1 | +0.61 | 10% | 1e-8 |
+| qsd vs seq + ablation | −1.67 | 93% | 1e-10 |
+| qsd vs LightGBM held out | −3.42 | 100% | 9e-13 |
+| length only vs all attributes | −0.01 | 46% | 0.8 |
+| no features vs all attributes | +0.25 | 24% | 0.003 |
+| no features vs seq + ablation | −2.04 | 100% | 9e-13 |
+| inductive (held out) vs stgnn_mta trained with them | +4.52 | 0% | 9e-13 |
+| LightGBM held out vs trained with them | +6.21 | 0% | 9e-13 |
+
+- Every conclusion below survives the rebuild: inductive graph < seq + ablation < LightGBM
+  held out < transductive graph < mta_cal; message passing over anonymous segments is what
+  transfers (no features still beats no graph by 2.0 s on 100% of days); signals and bus
+  lanes add nothing beyond segment length (now an exact tie, p = 0.8).
+- **Changed:** the final recipe is no longer free on cold start. It costs 0.61 s vs the L1
+  inductive model (worse on 90% of days), whereas the old build had a tie (+0.11 s, p = 0.5).
+  It still beats every non-inductive alternative. So for a changing network the
+  recommendation is the L1 inductive model when point accuracy matters, the quantile one
+  when intervals are needed.
+- The tables and numbers below are from the **old build** (42 days) and include runs that
+  were not retrained (no-ablation and v2-transductive variants); they are kept for the
+  history of the argument.
+
+Results on the 6 held-out routes, old build (MAE, s):
 
 | Model | All | h1 | h16–20 | Skill vs mta_cal |
 |---|---|---|---|---|
@@ -533,7 +588,8 @@ Results on the 6 held-out routes (MAE, s):
 - **Cold start with the final recipe** (`stgnn_mta_v2indqsd_ho_abl`: inductive + quantiles
   + observation dropout, 3 seeds; `results/coldstart_final*.csv`):
   - 101.32 ± 0.05 s on the held-out routes, a tie with the L1 inductive model (101.22;
-    +0.11 s, p = 0.5). The final recipe costs nothing on cold start.
+    +0.11 s, p = 0.5). The final recipe costs nothing on cold start. (Rebuilt data: it
+    does, +0.61 s; see the rebuilt table above.)
   - Seed-averaged paired: beats no graph + ablation by 1.8 s (95% of days, p = 6e-12),
     held-out LightGBM by 3.75 s and the transductive graph by 9.2 s (both 100% of days).
   - Its 90% intervals cover 88.8–89.0% (all routes, width about 385 s), so the ranges
@@ -745,6 +801,7 @@ Neural models are averaged over 3 seeds unless stated.
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
 - [x] Random-split pitfall result (LightGBM): +2.8 s optimistic, ties our graph model (§5.3).
+  Rebuilt data: +2.84 s, and it now *beats* our graph model by 0.4–0.7 s (p ≤ 0.001).
 - [ ] Optional: day-blocked random split, to separate neighbour leakage from training on the test period.
 - [x] Cold-start: inductive encoder; segment attributes.
 - [x] Cold-start: inductive controls (len / none); seeds 1–2.
