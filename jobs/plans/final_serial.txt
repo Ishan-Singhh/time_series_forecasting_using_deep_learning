@@ -1,0 +1,52 @@
+# Final protocol, one job at a time (shared GPU 0; root deleted three concurrent chains on
+# 2026-10-16). Same runs as final_{a,b,c}.txt, most important first, so the costly baseline
+# seeds (DCRNN ~10 GPU-h each) come last. Finished runs are skipped on resubmission.
+stgnn_mta_qsdrop 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta 0 
+stgnn_mta_s1 1 
+stgnn_mta_s2 2 
+seq_mta 0 --no-graph
+seq_mta_s1 1 --no-graph
+seq_mta_s2 2 --no-graph
+stgnn_no_mta 0 --no-mta
+stgnn_no_mta_s1 1 --no-mta
+stgnn_no_mta_s2 2 --no-mta
+seq_no_mta 0 --no-graph --no-mta
+seq_no_mta_s1 1 --no-graph --no-mta
+seq_no_mta_s2 2 --no-graph --no-mta
+stgnn_mta_v2indqsd_ho_abl 0 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indqsd_ho_abl_s1 1 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indqsd_ho_abl_s2 2 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl 0 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl_s1 1 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl_s2 2 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl 0 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl_s1 1 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl_s2 2 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_ho_abl 0 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indlen_ho_abl 0 --data nn_v2 --inductive --inductive-feats len --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indnone_ho_abl 0 --data nn_v2 --inductive --inductive-feats none --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_q 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_sdrop 0 --train-state-drop 0.9
+stgnn_mta_sdrop_s1 1 --train-state-drop 0.9
+stgnn_mta_sdrop_s2 2 --train-state-drop 0.9
+staeformer_mta 0 --encoder staeformer
+staeformer_mta_s1 1 --encoder staeformer
+staeformer_mta_s2 2 --encoder staeformer
+a3tgcn_mta 0 --encoder a3tgcn
+a3tgcn_mta_s1 1 --encoder a3tgcn
+a3tgcn_mta_s2 2 --encoder a3tgcn
+tgcn_mta 0 --encoder tgcn
+convlstm_mta_e20 0 --arch convlstm --epochs 20
+convlstm_mta_e20_s1 1 --arch convlstm --epochs 20
+convlstm_mta_e20_s2 2 --arch convlstm --epochs 20
+gwnet_mta 0 --encoder gwnet
+gwnet_mta_s1 1 --encoder gwnet
+gwnet_mta_s2 2 --encoder gwnet
+dcrnn_mta 0 --encoder dcrnn
+dcrnn_mta_s1 1 --encoder dcrnn
+dcrnn_mta_s2 2 --encoder dcrnn

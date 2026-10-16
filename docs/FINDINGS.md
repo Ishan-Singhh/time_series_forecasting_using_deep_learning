@@ -797,6 +797,12 @@ Neural models are averaged over 3 seeds unless stated.
     `jobs/plans/final_{a,b,c}.txt` (27405–27407, `stgnn.pbs PLAN=`). A: headline
     qsdrop, stgnn_mta, seq_mta, STAEformer, A3T-GCN, T-GCN, ConvLSTM e20, q, sdrop. B: DCRNN,
     stgnn_no_mta. C: Graph WaveNet, seq_no_mta, the cold-start set.
+  - At 15:48 root deleted all three chains (4.9 h in, after another GPU user had tried to
+    delete one), probably for crowding the shared GPU. 9 of 49 runs were done (qsdrop ×3,
+    stgnn_mta ×3, seq_mta s0–1, gwnet s0). The rest run **one job at a time** until GPU 1
+    is fixed: `jobs/plans/final_serial.txt` (the same 49 runs, most important first,
+    DCRNN seeds last), jobs 27432 and 27433 (48 h each, the second `afterany` the first).
+    Running alone, an epoch takes 37 s instead of 58 s.
   - Then re-run the evaluations and analyses (final, paired, uncertainty, error analysis,
     robustness and permutation, figures) and replace every number in this file. Old
     numbers stay in git history (branch `restart-multistep-eta`).
