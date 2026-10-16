@@ -16,7 +16,11 @@ cd "${PBS_O_WORKDIR}"
 source /apps/anaconda3/bin/activate bus_eta
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-freest() { nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t, -k2 -nr | head -1; }
+# freest healthy GPU: skip any with uncorrected ECC errors since its last reset (as stgnn.pbs)
+freest() {
+  nvidia-smi --query-gpu=index,memory.free,ecc.errors.uncorrected.volatile.total --format=csv,noheader,nounits |
+    awk -F', *' '$3 + 0 == 0 {print $1 "," $2}' | sort -t, -k2 -nr | head -1
+}
 for ((i = 0; i < ${WAIT_H:-6} * 12; i++)); do
   (( $(freest | cut -d, -f2) >= ${MIN_FREE_GB:-10} * 1024 )) && break
   sleep 300

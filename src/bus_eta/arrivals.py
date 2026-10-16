@@ -12,12 +12,16 @@ interpolation the label involved; downstream code filters on them. arr_seen / de
 the timestamps of the ping that revealed each crossing: the earliest moment a real-time
 system could know about it, which is what causal features and issue times must use.
 
-Output: data/interim/arrivals/<YYYY-MM-DD>.parquet (keyed by RT archive day).
+Output: data/interim/arrivals/<YYYY-MM-DD>.parquet, keyed by service date (the feed's
+start_date). The RT archive is split into UTC days, and a service day runs from ~04:00 UTC
+on d to ~08:00 UTC on d+1, so day d reads the archive files of d and d+1 and keeps the trips
+that started on d. Each trip instance is therefore built once, from its whole track; keying
+by archive file instead cut every trip running at 00:00 UTC (20:00 EDT) in two.
 
     python -m bus_eta.arrivals --start 2026-03-01 --end 2026-10-11 --workers 40
 """
 import argparse
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
@@ -81,14 +85,17 @@ def load_static():
 
 def build_day(d: date, static) -> pl.DataFrame | None:
     trips, stop_times, geom = static
-    vp_path = RAW_RT / "vehicle_positions" / f"{d.isoformat()}.parquet"
-    if not vp_path.exists():
+    vp_paths = [p for p in (RAW_RT / "vehicle_positions" / f"{x.isoformat()}.parquet" for x in (d, d + timedelta(days=1)))
+                if p.exists()]
+    if not vp_paths:
         return None
 
     vp = (
-        pl.read_parquet(vp_path, columns=["trip_id", "start_date", "vehicle_id", "timestamp",
-                                          "latitude", "longitude", "stop_id"])
+        pl.read_parquet(vp_paths, columns=["trip_id", "start_date", "vehicle_id", "timestamp",
+                                           "latitude", "longitude", "stop_id"])
+        .filter(pl.col("start_date") == d.strftime("%Y%m%d"))
         .drop_nulls(["trip_id", "start_date", "latitude", "longitude", "timestamp"])
+        .unique(["vehicle_id", "timestamp"], keep="first")  # the two files may repeat a ping at the seam
         .join(trips.select("pick", "trip_id", "shape_id", "pattern_id"), on="trip_id", how="inner")
     )
     # One vehicle per trip instance: the one that reported it most.

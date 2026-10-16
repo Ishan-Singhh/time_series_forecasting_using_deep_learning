@@ -70,11 +70,13 @@ def traversals(events: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
 
 
 def mta_predictions(d: date, trips: pl.DataFrame) -> pl.DataFrame | None:
-    p = RAW_RT / "trip_updates" / f"{d.isoformat()}.parquet"
-    if not p.exists():
+    # service day d spans the UTC archive files of d and d+1 (see arrivals.py)
+    paths = [p for p in (RAW_RT / "trip_updates" / f"{x.isoformat()}.parquet" for x in (d, d + timedelta(days=1)))
+             if p.exists()]
+    if not paths:
         return None
     tu = (
-        pl.read_parquet(p, columns=["feed_timestamp", "trip_id", "start_date", "stop_sequence", "arrival_time"])
+        pl.read_parquet(paths, columns=["feed_timestamp", "trip_id", "start_date", "stop_sequence", "arrival_time"])
         .join(trips, on=TRIP, how="semi")
         .with_columns(pl.col("feed_timestamp").cast(pl.Float64), pl.col("stop_sequence").cast(pl.Int32))
     )
@@ -90,8 +92,11 @@ def build_day(d: date, static_st: pl.DataFrame) -> pl.DataFrame | None:
     today = read_arrivals(d)
     if today is None:
         return None
-    prev = read_arrivals(d - timedelta(days=1))
-    history = today if prev is None else pl.concat([prev, today])
+    # Other buses' observations also come from the neighbouring service days: late trips of d-1
+    # and early trips of d+1 overlap d's night hours. Every use is an as-of join on the time an
+    # observation was revealed, so including d+1 cannot leak.
+    days = (read_arrivals(d - timedelta(days=1)), today, read_arrivals(d + timedelta(days=1)))
+    history = pl.concat([x for x in days if x is not None])
     runs, dwells = traversals(history)
 
     issues = (
@@ -190,7 +195,7 @@ def build_day(d: date, static_st: pl.DataFrame) -> pl.DataFrame | None:
         .drop("_t_dep_k3", "_sched_dep_k3")
     )
     # Headway: previous departure of another bus of the same route/direction from this stop.
-    deps = (today.filter(pl.col("dep_seen").is_not_null())
+    deps = (history.filter(pl.col("dep_seen").is_not_null())
             .select("route_id", "direction_id", "stop_id", pl.col("t_dep").alias("prev_bus_dep"),
                     pl.col("dep_seen").alias("_seen")).sort("_seen"))
     feats = (

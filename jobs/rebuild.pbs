@@ -1,0 +1,31 @@
+#PBS -N bus_eta_rebuild
+#PBS -l select=1:ncpus=40:mem=200gb,walltime=24:00:00
+#PBS -q workq
+#PBS -j oe
+#
+# Full data rebuild after a change to arrivals/samples: ground truth -> samples -> network
+# state -> neural packs (nn, nn_v2). Static tables, the graph, segment attributes and the
+# context tables don't depend on these and are reused. Submit from the repo root:
+#   qsub jobs/rebuild.pbs
+#   qsub -v STEPS="network_state packs" jobs/rebuild.pbs     # resume from a step
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1
+mkdir -p jobs/logs
+LOG="jobs/logs/rebuild_${PBS_JOBID%%.*}.log"
+R="--start 2026-03-01 --end 2026-10-11"
+step() { echo "== $* ($(date))"; /usr/bin/time -f "   %e s, %M KB" python -m "$@" || exit 1; }
+{
+  echo "node $(hostname), NCPUS=${NCPUS}"
+  for s in ${STEPS:-arrivals samples network_state packs}; do
+    case $s in
+      arrivals)      step bus_eta.arrivals $R ;;
+      samples)       step bus_eta.samples $R ;;
+      network_state) step bus_eta.network_state ;;
+      packs)         step bus_eta.models.stgnn_data && step bus_eta.models.stgnn_data --out nn_v2 --v2 ;;
+    esac
+  done
+  echo "REBUILD_DONE"
+} > "$LOG" 2>&1
+echo "exit code $? -- log: $LOG"
