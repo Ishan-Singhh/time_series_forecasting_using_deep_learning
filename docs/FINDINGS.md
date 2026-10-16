@@ -103,6 +103,23 @@ is being retrained. The old build is kept in `data/archive_utc/`.
      The two differ by an hour on DST days: Mar 8's median schedule delay was −3,522 s and
      is now 78 s.
 
+3. **Consequence: the test period is 41 service days (Sep 1 – Oct 11), not 42.**
+   - The old build's "42 days" counted 123k test rows of Aug 31 trips that ran past 00:00
+     UTC into the Sep 1 file. Their earlier stops sat in the Aug 31 file, i.e. in
+     validation, so a few trip instances straddled the val/test boundary. That is now gone.
+   - Oct 11 also gains its evening: 530k rows, up from 407k.
+   - Every daily paired test now uses 41 days.
+4. **Early check (2026-10-16, `results/early.csv`; the models finished so far, on their
+   own common support of 25.61M rows).** Compared with the old final table:
+   - **Ours** (`stgnn_mta_qsdrop`, 3 seeds): 97.03 s, was 96.72; skill vs `mta_cal`
+     **+16.4%**, unchanged.
+   - **LightGBM** (`lgbm_mta`): 99.06 s, was 99.20; RMSE **163.3, was 183.3**. The old
+     LightGBM's heavy tail came largely from the broken evening hours.
+   - **MTA:** `mta_cal` 116.09 s, was 115.68.
+   - Absolute MAEs rise slightly because the recovered evening rows include more long
+     horizons.
+   - Daily paired vs `mta_cal`: ours −19.1 s (100% of 41 days); LightGBM −17.0 s.
+
 Rebuilt sizes:
 - network state: 42.7M traversals, 26.0% of node-bins observed (was 25%);
 - packs:
