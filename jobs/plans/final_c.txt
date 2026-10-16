@@ -1,0 +1,20 @@
+# Final protocol, chain C (~21 GPU-h): Graph WaveNet, no-MTA sequence ablation, cold start
+# (6 held-out routes, spatial ablation 0.3; predictions go to preds/analysis/).
+gwnet_mta 0 --encoder gwnet
+gwnet_mta_s1 1 --encoder gwnet
+gwnet_mta_s2 2 --encoder gwnet
+seq_no_mta 0 --no-graph --no-mta
+seq_no_mta_s1 1 --no-graph --no-mta
+seq_no_mta_s2 2 --no-graph --no-mta
+stgnn_mta_v2indqsd_ho_abl 0 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indqsd_ho_abl_s1 1 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indqsd_ho_abl_s2 2 --data nn_v2 --inductive --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl 0 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl_s1 1 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2ind_ho_abl_s2 2 --data nn_v2 --inductive --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl 0 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl_s1 1 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+seq_mta_ho_abl_s2 2 --no-graph --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_ho_abl 0 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indlen_ho_abl 0 --data nn_v2 --inductive --inductive-feats len --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_v2indnone_ho_abl 0 --data nn_v2 --inductive --inductive-feats none --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3

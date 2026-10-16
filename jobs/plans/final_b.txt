@@ -1,0 +1,7 @@
+# Final protocol, chain B (~29 GPU-h): DCRNN baseline and the no-MTA graph ablation.
+dcrnn_mta 0 --encoder dcrnn
+dcrnn_mta_s1 1 --encoder dcrnn
+dcrnn_mta_s2 2 --encoder dcrnn
+stgnn_no_mta 0 --no-mta
+stgnn_no_mta_s1 1 --no-mta
+stgnn_no_mta_s2 2 --no-mta

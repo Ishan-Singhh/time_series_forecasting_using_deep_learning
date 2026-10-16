@@ -1,0 +1,27 @@
+# Final protocol, chain A (~29 GPU-h): headline model and main comparison. Defaults from stgnn.pbs:
+# --epochs 10 --patience 3 --max-bins 16 --batch-size 2048.
+stgnn_mta_qsdrop 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta 0 
+stgnn_mta_s1 1 
+stgnn_mta_s2 2 
+seq_mta 0 --no-graph
+seq_mta_s1 1 --no-graph
+seq_mta_s2 2 --no-graph
+staeformer_mta 0 --encoder staeformer
+staeformer_mta_s1 1 --encoder staeformer
+staeformer_mta_s2 2 --encoder staeformer
+a3tgcn_mta 0 --encoder a3tgcn
+a3tgcn_mta_s1 1 --encoder a3tgcn
+a3tgcn_mta_s2 2 --encoder a3tgcn
+tgcn_mta 0 --encoder tgcn
+convlstm_mta_e20 0 --arch convlstm --epochs 20
+convlstm_mta_e20_s1 1 --arch convlstm --epochs 20
+convlstm_mta_e20_s2 2 --arch convlstm --epochs 20
+stgnn_mta_q 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_sdrop 0 --train-state-drop 0.9
+stgnn_mta_sdrop_s1 1 --train-state-drop 0.9
+stgnn_mta_sdrop_s2 2 --train-state-drop 0.9

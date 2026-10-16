@@ -22,6 +22,7 @@ Output: data/processed/samples/<YYYY-MM-DD>.parquet
     python -m bus_eta.samples --start 2026-03-01 --end 2026-10-11
 """
 import argparse
+import os
 from datetime import date, timedelta
 
 import polars as pl
@@ -223,7 +224,8 @@ def _init():
                                    "sched_dep_s", "dist_m"])
 
 
-FORCE = False
+# set by --force in main(); an env var so the spawned day workers see it too
+FORCE = os.environ.get("BUS_ETA_FORCE") == "1"
 
 
 def _run(d: date) -> str:
@@ -245,8 +247,8 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=max(1, n_cpus() // 2))
     p.add_argument("--force", action="store_true", help="rebuild days whose output already exists")
     args = p.parse_args()
-    global FORCE
-    FORCE = args.force
+    if args.force:
+        os.environ["BUS_ETA_FORCE"] = "1"
     run_days(_run, day_range(args.start, args.end), args.workers, initializer=_init)
 
 

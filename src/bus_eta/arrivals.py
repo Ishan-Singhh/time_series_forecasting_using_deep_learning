@@ -20,6 +20,7 @@ by archive file instead cut every trip running at 00:00 UTC (20:00 EDT) in two.
     python -m bus_eta.arrivals --start 2026-03-01 --end 2026-10-11 --workers 40
 """
 import argparse
+import os
 from datetime import date, timedelta
 
 import numpy as np
@@ -191,7 +192,8 @@ def _init():
     _STATIC = load_static()
 
 
-FORCE = False
+# set by --force in main(); an env var so the spawned day workers see it too
+FORCE = os.environ.get("BUS_ETA_FORCE") == "1"
 
 
 def _run(d: date) -> str:
@@ -214,8 +216,8 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=n_cpus())
     p.add_argument("--force", action="store_true", help="rebuild days whose output already exists")
     args = p.parse_args()
-    global FORCE
-    FORCE = args.force
+    if args.force:
+        os.environ["BUS_ETA_FORCE"] = "1"
     run_days(_run, day_range(args.start, args.end), args.workers, initializer=_init)
 
 
