@@ -30,9 +30,12 @@ from bus_eta.evaluate import KEY, PREDS, RESULTS, load_common
 FIGS = RESULTS.parents[2] / "docs" / "figures"
 CACHE = RESULTS / "figdata"
 
+MAIN = "stgnn_mta_q"          # the paper's main model (quantile head)
+ROBUST_VARIANT = "stgnn_mta_qsdrop"  # + observation dropout
+
 # Okabe-Ito, colour-blind safe; ours is the strong vermillion, MTA black
 STYLE = {
-    "stgnn_mta_qsdrop": ("Ours", "#D55E00", "-", 2.2),
+    MAIN: ("Ours", "#D55E00", "-", 2.2),
     "gwnet_mta": ("Graph WaveNet", "#0072B2", "-", 1.3),
     "dcrnn_mta": ("DCRNN", "#56B4E9", "-", 1.3),
     "a3tgcn_mta": ("A3T-GCN", "#009E73", "-", 1.3),
@@ -43,7 +46,7 @@ STYLE = {
     "hist_avg": ("Historical average", "#666666", ":", 1.5),
     "mta_cal": ("MTA (calibrated)", "#000000", "-", 1.5),
 }
-SEEDED = {"stgnn_mta_qsdrop", "gwnet_mta", "dcrnn_mta", "a3tgcn_mta", "staeformer_mta", "seq_mta",
+SEEDED = {MAIN, ROBUST_VARIANT, "gwnet_mta", "dcrnn_mta", "a3tgcn_mta", "staeformer_mta", "seq_mta",
           "convlstm_mta_e20"}
 
 
@@ -97,9 +100,9 @@ def plot_horizon(d: pl.DataFrame) -> None:
     ref = d["mta_cal"].to_numpy()
     for m, (label, c, ls, lw) in STYLE.items():
         y = d[m].to_numpy()
-        a.plot(h, y, ls, color=c, lw=lw, label=label, zorder=3 if m == "stgnn_mta_qsdrop" else 2)
+        a.plot(h, y, ls, color=c, lw=lw, label=label, zorder=3 if m == MAIN else 2)
         if m != "mta_cal":
-            b.plot(h, 100 * (1 - y / ref), ls, color=c, lw=lw, zorder=3 if m == "stgnn_mta_qsdrop" else 2)
+            b.plot(h, 100 * (1 - y / ref), ls, color=c, lw=lw, zorder=3 if m == MAIN else 2)
     b.axhline(0, color="black", lw=0.8)
     a.set(xlabel="Horizon h (stops ahead)", ylabel="MAE (s)", xticks=[1, 5, 10, 15, 20])
     b.set(xlabel="Horizon h (stops ahead)", ylabel="Skill vs MTA calibrated (%)", xticks=[1, 5, 10, 15, 20])
@@ -112,8 +115,9 @@ def plot_horizon(d: pl.DataFrame) -> None:
 
 # ---------------------------------------------------------------- robustness
 DROPS = [0, 25, 50, 75, 90]
-ROBUST = {"stgnn_mta": ("Trained without dropout", "#0072B2", "o--"),
-          "stgnn_mta_qsdrop": ("Ours (trained with obs. dropout)", "#D55E00", "o-")}
+ROBUST = {MAIN: ("Ours", "#D55E00", "o--"),
+          "gwnet_mta": ("Graph WaveNet", "#0072B2", "o--"),
+          ROBUST_VARIANT: ("Ours + obs. dropout in training", "#D55E00", "s-")}
 
 
 def build_robustness() -> pl.DataFrame:
@@ -173,7 +177,7 @@ def plot_permutation(d: pl.DataFrame) -> None:
 
 
 # ---------------------------------------------------------------- time of day
-TOD = ["stgnn_mta_qsdrop", "seq_mta", "lgbm_mta", "mta_cal"]
+TOD = [MAIN, "seq_mta", "lgbm_mta", "mta_cal"]
 
 
 def build_tod() -> pl.DataFrame:
@@ -191,7 +195,7 @@ def plot_tod(d: pl.DataFrame) -> None:
     a.set_ylabel("MAE (s)")
     a.legend(frameon=False, ncol=4, loc="lower center", bbox_to_anchor=(0.5, 1.0), columnspacing=1.0,
              handlelength=1.5)
-    b.bar(hr, d["seq_mta"] - d["stgnn_mta_qsdrop"], color="#D55E00", width=0.75)
+    b.bar(hr, d["seq_mta"] - d[MAIN], color="#D55E00", width=0.75)
     b.set(xlabel="Hour of day (issue time)", ylabel="Graph gain (s)", xticks=range(0, 24, 3))
     save(fig, "tod")
 
@@ -204,13 +208,13 @@ def build_map() -> pl.DataFrame:
     """Graph gain per segment: no-graph minus ours (seed-averaged absolute error) over every
     prediction whose target stop k + h is reached through that segment, all horizons."""
     from bus_eta.features import stop_segments
-    cols = seeds("stgnn_mta_qsdrop") + seeds("seq_mta")
-    df = (load_common(cols).with_columns(seed_mean_abs(["stgnn_mta_qsdrop", "seq_mta"]))
+    cols = seeds(MAIN) + seeds("seq_mta")
+    df = (load_common(cols).with_columns(seed_mean_abs([MAIN, "seq_mta"]))
           .with_columns((pl.col("k") + pl.col("h")).cast(pl.Int32).alias("stop_idx"))
-          .select("trip_id", "stop_idx", "stgnn_mta_qsdrop", "seq_mta"))
+          .select("trip_id", "stop_idx", MAIN, "seq_mta"))
     seg = stop_segments().with_columns(pl.col("stop_idx").cast(pl.Int32)).collect()
     per = (df.join(seg, on=["trip_id", "stop_idx"], how="inner").group_by("node")
-           .agg(pl.len().alias("n"), pl.col("stgnn_mta_qsdrop").mean().alias("ours"),
+           .agg(pl.len().alias("n"), pl.col(MAIN).mean().alias("ours"),
                 pl.col("seq_mta").mean().alias("seq")))
     nodes = pl.read_parquet(INTERIM / "graph" / "nodes.parquet").select("node", "x0", "y0", "x1", "y1", "n_routes")
     return (nodes.with_columns(pl.col("node").cast(pl.Int64)).join(per, on="node", how="left")
@@ -250,18 +254,18 @@ def build_trip() -> pl.DataFrame:
     """A weekday PM-peak departure with all 20 horizons whose error for ours is near the
     median: actual and predicted travel time to each of the next 20 stops."""
     q = ["q5", "q50", "q95"]
-    ours = pl.read_parquet(PREDS / "stgnn_mta_qsdrop.parquet", columns=KEY + ["pred"] + q)
-    df = (load_common(["stgnn_mta_qsdrop", "mta_cal", "seq_mta"])
+    ours = pl.read_parquet(PREDS / f"{MAIN}.parquet", columns=KEY + ["pred"] + q)
+    df = (load_common([MAIN, "mta_cal", "seq_mta"])
           .filter(pl.col("dow") <= 5, pl.col("tod_hour").is_between(16, 19)))
     full = df.group_by("trip_id", "start_date", "k").agg(pl.len().alias("n"),
-                                                          (pl.col("stgnn_mta_qsdrop") - pl.col("y")).abs().mean().alias("err"))
+                                                          (pl.col(MAIN) - pl.col("y")).abs().mean().alias("err"))
     full = full.filter(pl.col("n") == 20)
     med = full["err"].median()
     pick = full.with_columns((pl.col("err") - med).abs().alias("d")).sort("d", "trip_id").head(1)
     out = df.join(pick.select("trip_id", "start_date", "k"), on=["trip_id", "start_date", "k"])
     return out.join(ours.select(KEY + q), on=KEY).sort("h").select(
         "trip_id", "start_date", "k", "route_id", "service_date", "tod_hour", "h", "y",
-        "stgnn_mta_qsdrop", "seq_mta", "mta_cal", *q)
+        MAIN, "seq_mta", "mta_cal", *q)
 
 
 def plot_trip(d: pl.DataFrame) -> None:
@@ -270,7 +274,7 @@ def plot_trip(d: pl.DataFrame) -> None:
     m = lambda c: d[c].to_numpy() / 60
     a.fill_between(h, m("q5"), m("q95"), color="#D55E00", alpha=0.18, lw=0, label="Ours, 90% interval")
     a.plot(h, m("y"), "o", color="black", ms=3, label="Actual (GPS)", zorder=4)
-    a.plot(h, m("stgnn_mta_qsdrop"), "-", color="#D55E00", lw=1.8, label="Ours")
+    a.plot(h, m(MAIN), "-", color="#D55E00", lw=1.8, label="Ours")
     a.plot(h, m("mta_cal"), "-", color="#000000", lw=1.0, label="MTA (calibrated)")
     a.plot(h, m("seq_mta"), "--", color="#E69F00", lw=1.2, label="No graph")
     r = d.row(0, named=True)

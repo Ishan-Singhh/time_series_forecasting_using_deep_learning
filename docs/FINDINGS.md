@@ -194,11 +194,11 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 
 | Model | Seeds | MAE (s) | RMSE | MAPE % | ≤ 60 s % | Skill vs mta_cal |
 |---|---|---|---|---|---|---|
-| **stgnn_mta_q** (quantile head) | 3 | **96.61 ± 0.11** | 155.8 | 15.1 | 49.3 | **+16.8%** |
+| **stgnn_mta_q (main model: quantile head)** | 3 | **96.61 ± 0.11** | 155.8 | 15.1 | 49.3 | **+16.8%** |
 | stgnn_mta (original, L1) | 3 | 96.80 ± 0.19 | 156.5 | 15.1 | 49.3 | +16.6% |
 | gwnet_mta (Wu et al. 2019) | 3 | 96.84 ± 0.06 | 155.8 | 15.1 | 49.2 | +16.6% |
 | stgnn_mta_sdrop (obs. dropout) | 3 | 97.01 ± 0.20 | 156.7 | 15.1 | 49.2 | +16.4% |
-| **stgnn_mta_qsdrop (current main model: quantiles + obs. dropout)** | 3 | 97.06 ± 0.20 | 157.0 | 15.1 | 49.2 | +16.4% |
+| stgnn_mta_qsdrop (robust variant: + obs. dropout) | 3 | 97.06 ± 0.20 | 157.0 | 15.1 | 49.2 | +16.4% |
 | stgnn_no_mta | 3 | 97.07 ± 0.13 | 156.7 | 15.2 | 49.1 | +16.4% |
 | dcrnn_mta (Li et al. 2018) | 3 | 97.59 ± 0.14 | 158.2 | 15.2 | 49.0 | +15.9% |
 | a3tgcn_mta (Bai et al. 2021) | 3 | 97.85 ± 0.10 | 159.0 | 15.3 | 49.0 | +15.7% |
@@ -215,32 +215,39 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 | rt | – | 134.30 | 210.0 | 21.4 | 38.0 | −15.7% |
 | sched | – | 356.18 | 590.9 | 81.6 | 17.1 | −206.8% |
 
-- 95% day-bootstrap CI of the MAE: 94.5–100.0 for stgnn_mta_qsdrop (seed 0), 113.1–119.9
-  for `mta_cal`. Median bias −5.2 s (ours) vs +7.4 s (`mta_cal`). Within 120 s: 73.5% vs
-  67.8%.
+- 95% day-bootstrap CI of the MAE: 94.1–99.6 for stgnn_mta_q (seed 0; qsdrop 94.5–100.0),
+  113.1–119.9 for `mta_cal`. Median bias −3.5 s (ours) vs +7.4 s (`mta_cal`). Within
+  120 s: 73.6% vs 67.8%.
 - Seed-averaged paired tests (daily MAE averaged over seeds, 41 days, Wilcoxon;
-  `python -m bus_eta.paired`, plus `stgnn_mta_q` / `stgnn_mta` vs GWNet run the same way):
+  `python -m bus_eta.paired`, rerun 2026-10-18 with the main model first). Daily means
+  differ from the pooled table by < 0.15 s.
 
 | Comparison | ΔMAE (s) | Days better | p |
 |---|---|---|---|
-| qsdrop vs stgnn_mta (original) | +0.25 | 15% | 4e-6 |
-| qsdrop vs stgnn_mta_q | +0.46 | 5% | 3e-11 |
-| qsdrop vs stgnn_mta_sdrop | +0.01 | 44% | 0.4 (tie) |
-| stgnn_mta_q vs stgnn_mta | −0.22 | 85% | 1e-8 |
+| **Main model (stgnn_mta_q) vs …** | | | |
+| stgnn_mta (original, L1) | −0.22 | 85% | 1e-8 |
+| stgnn_mta_qsdrop (robust variant) | −0.46 | 95% | 3e-11 |
+| **gwnet_mta** | **−0.25** | 78% | 8e-5 |
+| dcrnn_mta | −1.01 | 100% | 9e-13 |
+| a3tgcn_mta | −1.31 | 100% | 9e-13 |
+| tgcn_mta | −1.34 | 100% | 9e-13 |
+| seq_mta (no graph) | −2.35 | 100% | 9e-13 |
+| staeformer_mta | −2.42 | 100% | 9e-13 |
+| lgbm_mta | −2.61 | 100% | 9e-13 |
+| convlstm_mta_e20 | −2.99 | 100% | 9e-13 |
+| hist_avg | −18.59 | 100% | 9e-13 |
+| **Robust variant (stgnn_mta_qsdrop) vs …** | | | |
+| stgnn_mta (original) | +0.25 | 15% | 4e-6 |
+| stgnn_mta_sdrop | +0.01 | 44% | 0.4 (tie) |
+| gwnet_mta | +0.21 | 29% | 0.007 |
+| dcrnn_mta | −0.55 | 98% | 4e-11 |
+| seq_mta | −1.89 | 100% | 9e-13 |
+| lgbm_mta | −2.15 | 100% | 9e-13 |
+| **Ablations and baselines** | | | |
 | stgnn_mta_sdrop vs stgnn_mta | +0.24 | 17% | 8e-8 |
-| **qsdrop vs gwnet_mta** | **+0.21** | 29% | 0.007 |
-| **stgnn_mta vs gwnet_mta** | −0.03 | 56% | 0.2 (tie) |
-| **stgnn_mta_q vs gwnet_mta** | **−0.25** | 78% | 8e-5 |
-| qsdrop vs dcrnn_mta | −0.55 | 98% | 4e-11 |
+| stgnn_mta vs gwnet_mta | −0.03 | 56% | 0.2 (tie) |
 | stgnn_mta vs dcrnn_mta | −0.80 | 100% | 9e-13 |
 | gwnet_mta vs dcrnn_mta | −0.77 | 95% | 6e-12 |
-| qsdrop vs a3tgcn_mta | −0.85 | 100% | 9e-13 |
-| qsdrop vs tgcn_mta | −0.88 | 100% | 9e-13 |
-| qsdrop vs seq_mta (no graph) | −1.89 | 100% | 9e-13 |
-| qsdrop vs staeformer_mta | −1.95 | 100% | 9e-13 |
-| qsdrop vs lgbm_mta | −2.15 | 100% | 9e-13 |
-| qsdrop vs convlstm_mta_e20 | −2.52 | 100% | 9e-13 |
-| qsdrop vs hist_avg | −18.13 | 100% | 9e-13 |
 | stgnn_mta vs seq_mta (graph gain, with MTA input) | −2.14 | 100% | 9e-13 |
 | stgnn_no_mta vs seq_no_mta (graph gain, no MTA input) | −3.20 | 100% | 9e-13 |
 | gwnet_mta vs seq_mta | −2.10 | 100% | 9e-13 |
@@ -264,9 +271,9 @@ days better):
 
 | Model | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
 |---|---|---|---|---|---|
-| stgnn_mta_q | 28.5 | **56.9** | **95.2** | **126.7** | **153.0** |
+| stgnn_mta_q (main) | 28.5 | **56.9** | **95.2** | **126.7** | **153.0** |
 | stgnn_mta (original) | 28.6 | 57.0 | 95.4 | 127.0 | 153.4 |
-| stgnn_mta_qsdrop (main) | 28.6 | 57.1 | 95.7 | 127.4 | 153.8 |
+| stgnn_mta_qsdrop (robust) | 28.6 | 57.1 | 95.7 | 127.4 | 153.8 |
 | gwnet_mta | 28.6 | 57.2 | 95.6 | 127.0 | 153.1 |
 | dcrnn_mta | 28.8 | 57.4 | 96.2 | 128.1 | 154.7 |
 | a3tgcn_mta | 28.8 | 57.5 | 96.4 | 128.4 | 155.1 |
@@ -280,8 +287,8 @@ days better):
 
 ### Findings
 1. **All learned models beat MTA's deployed predictions on all 41 test days**
-   (p = 9e-13), in every horizon band. The main model is +16.4% overall, +26.1% at h1 and
-   +15.9% at h16–20; the historical average (+0.6%) ties MTA.
+   (p = 9e-13), in every horizon band. The main model (stgnn_mta_q) is +16.8% overall,
+   +26.2% at h1 and +16.3% at h16–20; the historical average (+0.6%) ties MTA.
 2. **The graph helps, and the help grows with horizon.**
    - Graph vs no graph (paired, daily): −2.14 s with MTA input, −3.20 s without; better
      on 100% of days.
@@ -296,9 +303,11 @@ days better):
 4. **The graph matters more than the encoder design — and on the rebuilt data our
    encoder no longer beats Graph WaveNet overall.**
    - stgnn_mta ties GWNet (−0.03 s, p = 0.2). It is better up to h10 and worse at
-     h16–20 (+0.32 s). With the quantile head it beats GWNet by 0.25 s (78% of days),
-     in every band except h16–20 (n.s.). The main model (qsdrop) is 0.21 s behind
-     GWNet (p = 0.007), entirely at long horizons.
+     h16–20 (+0.32 s). With the quantile head (the main model) it beats GWNet by 0.25 s
+     (78% of days, p = 8e-5), in every band except h16–20 (n.s.). Since the L1 encoders
+     tie, this win comes from the training loss, not the architecture; GWNet with a
+     quantile head was not tested. The robust variant (qsdrop) is 0.21 s behind GWNet
+     (p = 0.007), entirely at long horizons.
    - Old build: ours beat GWNet by 0.41 s (86% of days) with the gap growing with
      horizon. The old GWNet runs were trained on the broken evening data, and maybe
      with other settings (the old runs had mixed batch / max-bins), so this comparison is
@@ -328,7 +337,7 @@ days better):
     at once), 20 epochs, 3 seeds: 99.41 s, +14.4% vs MTA (100% of days). It reproduces the
     paper's claim of beating the operator, but is behind no graph (+0.6 s) and level with
     LightGBM on MAE (+0.37 s, p = 0.05) with better RMSE (161.8 vs 163.3). The main model
-    beats it by 2.5 s on 100% of days; route-local convolution sees only the bus's own
+    beats it by 3.0 s on 100% of days; route-local convolution sees only the bus's own
     corridor, the graph sees crossing and parallel routes.
 11. **A historical average with no live data matches MTA's deployed predictions**
     (`python -m bus_eta.models.hist_avg`: mean TRAIN travel time from stop k to k+h for
@@ -337,11 +346,14 @@ days better):
     MTA as published; +12.7% at h1, level with MTA from h6 on. The operator's real-time
     system adds nothing over a lookup table of past travel times; every learned model beats
     it by 14.8–18.7 s. The open feed carries information MTA's own predictor doesn't use.
-12. **Main-model choice is open (2026-10-17).** The rebuilt data made the trade-off
-    visible: observation dropout costs 0.25–0.46 s on complete data but saves 6.6–7.4 s
-    when 90% of the network observations are missing (§5.1). Options: keep qsdrop
-    (robust), switch to stgnn_mta_q (most accurate; beats every baseline incl. GWNet), or
-    report q as the main model and qsdrop as the robust deployment variant.
+12. **Main model: `stgnn_mta_q`; robust variant: `stgnn_mta_qsdrop` (decided 2026-10-18,
+    user).** The rebuilt data made the trade-off visible: observation dropout costs
+    0.25–0.46 s on complete data but saves 6.6–7.4 s when 90% of the network observations
+    are missing (§5.1). The paper reports q as the main model (most accurate; the only one
+    to beat every baseline incl. GWNet, with the same calibrated intervals as qsdrop,
+    §5.7) and qsdrop as the robust deployment variant (§5.1, §5.8). The original L1
+    `stgnn_mta` and `stgnn_mta_sdrop` are ablations; the inductive encoder (`v2ind`) is
+    the cold-start variant (§5.4).
 
 ## 5. Analyses
 
@@ -390,7 +402,7 @@ Original `stgnn_mta`, seed 0; MAE over all test rows (base 96.66 s, rebuilt data
 | Day of week | 97.8 | +1.2 |
 | **Weather + calendar** | 96.8 | **+0.1** |
 
-- Main model (qsdrop) for comparison: network state +25.0, rt +241.6, schedule +87.0,
+- Robust variant (qsdrop) for comparison: network state +25.0, rt +241.6, schedule +87.0,
   time +13.5, mta +9.1, bus state +8.3, dow +1.7, route +1.7, weather + calendar +0.3.
 - **Weather adds essentially nothing** once the real-time network state is known (both
   models). This goes against common claims in the literature; worth stating.
@@ -427,15 +439,17 @@ Original `stgnn_mta`, seed 0; MAE over all test rows (base 96.66 s, rebuilt data
 | lgbm_mta, chronological split | 99.06 | 163.3 | 28.36 | 57.81 | 97.63 | 130.38 | 157.58 |
 | lgbm_mta_randsplit, random split | **96.38** | 157.2 | 28.37 | 57.09 | 95.43 | 126.26 | **151.66** |
 | stgnn_mta (ours, chronological, seed 0) | 96.76 | 156.8 | 28.50 | 56.93 | 95.37 | 126.95 | 153.38 |
-| stgnn_mta_qsdrop (headline, seed 0) | 97.03 | 157.3 | 28.51 | 57.04 | 95.62 | 127.35 | 153.85 |
+| stgnn_mta_q (main model, seed 0) | 96.68 | 156.4 | 28.52 | 56.87 | 95.26 | 126.85 | 153.25 |
+| stgnn_mta_qsdrop (robust variant, seed 0) | 97.03 | 157.3 | 28.51 | 57.04 | 95.62 | 127.35 | 153.85 |
 
   - **The random split makes the same model look 2.84 s (2.9%) better**: 99.19 → 96.35 s
     daily mean, better on 100% of 41 days, p = 9e-13. Skill vs MTA rises from +14.7% to
     +17.0%. (Old build: 2.8 s, the same.)
-  - **That is enough to reverse the graph advantage.** Evaluated this way, plain LightGBM
-    *beats* our graph model: −0.44 s vs stgnn_mta (3 seeds; better on 73% of days,
-    p = 0.001) and −0.69 s vs the headline model (83% of days, p = 2e-6). On the old build it
-    was a tie (−0.18 s, p = 0.1). A paper using a random split would report a tree model
+  - **That is enough to erase or reverse the graph advantage.** Evaluated this way, plain
+    LightGBM ties the main model (−0.23 s vs stgnn_mta_q, 3 seeds; better on 63% of days,
+    p = 0.08) and *beats* the L1 graph model (−0.44 s vs stgnn_mta; 73% of days,
+    p = 0.001) and the robust variant (−0.69 s; 83% of days, p = 2e-6). On the old build
+    it was a tie with stgnn_mta (−0.18 s, p = 0.1). A paper using a random split would report a tree model
     beating a spatio-temporal GNN, the opposite of the honest ranking (§4: the graph model
     beats LightGBM by about 2 s on 100% of days).
   - The inflation grows with horizon: +0.01 s at h1 (no gain), −5.9 s at h16–20. That is the
@@ -456,7 +470,7 @@ Original `stgnn_mta`, seed 0; MAE over all test rows (base 96.66 s, rebuilt data
     which leaves out all 9,399 boundary issues, including the 1,404. (Old build. Files are now
     keyed by service date, so file date = service date and this cannot recur.)
 - **Paper point:** the two pitfalls together (wrong label: 31% optimistic; random split: a
-  further 2.8 s, more at long horizons, enough to flip the GNN vs tree ranking) are larger than most of the model differences in
+  further 2.8 s, more at long horizons, enough to erase or flip the GNN vs tree ranking) are larger than most of the model differences in
   this literature. Our protocol (GPS truth, chronological split, daily paired tests) is a
   contribution in itself.
 
@@ -479,7 +493,7 @@ seeds:
 | Model | All | h1 | h16–20 | Skill vs mta_cal |
 |---|---|---|---|---|
 | stgnn_mta, trained *with* these routes (upper bound) | 96.82 ± 0.10 | 28.90 | 152.35 | +16.6% |
-| headline qsdrop, trained with these routes | 97.08 ± 0.20 | 28.89 | 152.86 | +16.4% |
+| qsdrop (robust variant), trained with these routes | 97.08 ± 0.20 | 28.89 | 152.86 | +16.4% |
 | seq_mta, trained with these routes | 98.80 ± 0.10 | 29.35 | 155.84 | +14.9% |
 | lgbm_mta, trained with these routes (1 run) | 99.02 | 28.77 | 156.38 | +14.7% |
 | **inductive graph, held out + ablation** (`v2ind_ho_abl`) | **101.30 ± 0.36** | **29.87** | **158.80** | **+12.8%** |
@@ -698,14 +712,16 @@ data, all 26.3M test rows, 3 seeds each).
 
 | Horizon | 50% int. coverage | 80% int. coverage | 90% int. coverage | 90% width (s) |
 |---|---|---|---|---|
-| h1 | 49.7 | 80.2 | 90.1 | 116 |
-| h2–5 | 48.9 | 79.1 | 89.3 | 228 |
-| h6–10 | 48.5 | 78.4 | 88.8 | 374 |
-| h11–15 | 48.2 | 78.0 | 88.4 | 492 |
-| h16–20 | 47.9 | 77.7 | 88.2 | 588 |
-| all | 48.5 | 78.5 | 88.8 | 378 |
+| h1 | 50.2 | 80.4 | 90.3 | 117 |
+| h2–5 | 49.2 | 79.3 | 89.5 | 229 |
+| h6–10 | 48.6 | 78.6 | 88.9 | 375 |
+| h11–15 | 48.2 | 78.1 | 88.5 | 492 |
+| h16–20 | 48.0 | 77.8 | 88.3 | 588 |
+| all | 48.7 | 78.7 | 89.0 | 378 |
 
-  (qsdrop, mean of 3 seeds; stgnn_mta_q is within 0.2 pt everywhere.)
+  (Main model stgnn_mta_q, mean of 3 seeds; qsdrop is within 0.4 pt everywhere, e.g.
+  88.8% / 378 s for the 90% interval overall. Coverage of the 50% / 80% intervals is the
+  difference of the shares below q75 − q25 and q90 − q10.)
 - Slight under-coverage that grows with horizon (−2.3 pt for the 80% interval at
   h16–20; slightly more than the old build's −1.2) and a median biased a little early
   (47.7% below q50). A typical test-period shift (school start); split-conformal
@@ -716,54 +732,67 @@ data, all 26.3M test rows, 3 seeds each).
 - Use case: "arriving in 6–9 min" displays, and transfer / missed-connection risk.
   MTA publishes only a point ETA.
 
-### 5.8 Main model: quantile head + observation dropout (`stgnn_mta_qsdrop`)
+### 5.8 Robust variant: quantile head + observation dropout (`stgnn_mta_qsdrop`)
 
 | Hidden network observations | 0% | 25% | 50% | 75% | 90% |
 |---|---|---|---|---|---|
-| Median MAE (s, seed 0) | 96.96 | 97.06 | 97.25 | 97.61 | 98.32 |
-| 90% interval coverage (%) | 88.7 | 88.7 | 88.8 | 88.8 | 88.9 |
-| 90% interval mean width (s) | 374 | 375 | 377 | 379 | 383 |
+| qsdrop: median MAE (s, seed 0) | 96.96 | 97.06 | 97.25 | 97.61 | 98.32 |
+| qsdrop: 90% interval coverage (%) | 88.7 | 88.7 | 88.8 | 88.8 | 88.9 |
+| qsdrop: 90% interval mean width (s) | 374 | 375 | 377 | 379 | 383 |
+| main model q: median MAE (s, seed 0) | 96.58 | 97.30 | 99.12 | 102.03 | 104.94 |
+| main model q: 90% interval coverage (%) | 88.7 | 89.1 | 89.2 | 88.5 | 87.0 |
+| main model q: 90% interval mean width (s) | 373 | 384 | 394 | 395 | 384 |
 
-(`results/uncertainty_drop.csv`.)
+(`results/uncertainty_drop.csv`, `results/uncertainty_drop_q.csv`.)
 
-- **The intervals stay calibrated when data go missing.** Widths grow slightly (+2%)
+- **qsdrop's intervals stay calibrated when data go missing.** Widths grow slightly (+2%)
   instead of coverage collapsing.
+- **The main model's intervals hold up too, but less well** (2026-10-18): coverage stays
+  within 2 pt of nominal, but drops to 87.0% at 90% hidden while the width *shrinks*
+  (395 → 384 s) even though the error grows by 8.4 s. Without dropout training the model
+  doesn't know it is missing data. Interval quality is therefore not a reason to prefer
+  either model on complete data; robustness is.
 - 3 seeds: MAE 97.06 ± 0.20 s, +16.4% vs `mta_cal`; 90% coverage 88.7 / 88.7 / 89.2%
   (mean width 374 / 374 / 384 s).
 - **Rebuilt data: the combination is no longer free.** Old build: it tied the original
   (+0.06 s, p = 0.1). Now: +0.25 s vs the original and +0.46 s vs quantiles alone; the
   cost comes from observation dropout (sdrop alone: +0.24 s) and is concentrated at long
   horizons (+0.76 s vs GWNet at h16–20). In exchange it is the best model whenever ≥ 25%
-  of observations are missing (§5.1). See §4 finding 12 for the open choice.
+  of observations are missing (§5.1). Hence its role as the robust variant, not the main
+  model (§4 finding 12).
 - Cold start (§5.4): its inductive variant costs 0.61 s vs the L1 inductive model.
 
 ### 5.9 Paper figures (`python -m bus_eta.figures`, → `docs/figures/*.pdf|png`)
 Numbers are cached in `results/figdata/<figure>.csv`; restyling needs no recomputation.
 Neural models are averaged over 3 seeds unless stated. All six regenerated on the
-rebuilt data (`--recompute`, 2026-10-17) and checked visually.
+rebuilt data (`--recompute`, 2026-10-17) and checked visually. "Ours" is the main model
+`stgnn_mta_q` (`MAIN` in `figures.py`; switched from qsdrop and regenerated 2026-10-18).
 
 - `horizon`: MAE and skill vs `mta_cal` for h = 1..20, all main baselines. Skill peaks at
   h1 (about 26%, where LightGBM is best) and settles at 15–16% from h6 on. The graph models
   fan out above no graph as h grows. The historical average is +12.7% at h1 and ≤ 0 from
   about h7 on.
-- `robustness`: §5.1 as a curve (seed 0 of `stgnn_mta` and `stgnn_mta_qsdrop`), with the
-  no-graph model (98.8 s, 3 seeds) as a horizontal line. Values are on the common
+- `robustness`: §5.1 as a curve (seed 0 of the main model q, Graph WaveNet and the robust
+  variant qsdrop, labelled "Ours + obs. dropout in training"), with the no-graph model (98.8 s, 3 seeds) as a horizontal line. Values are on the common
   support, so they differ from the §5.1 table by < 0.2 s.
-- `permutation`: §5.2 as bars, log scale (original `stgnn_mta`, seed 0).
+- `permutation`: §5.2 as bars, log scale (original `stgnn_mta`, seed 0: the same encoder
+  as the main model with L1 loss; only the graph group was shuffled for q, +38.4 s).
 - `tod`: MAE by issue hour for the main model, no graph, LightGBM and `mta_cal`, plus the
-  graph gain. The gain is largest from 11:00 to 17:00 (2.0–2.9 s) and smallest at
-  02–05 (0.1–0.5 s), when few other buses are on the road to observe. **The old dip at
+  graph gain. The gain is largest from 11:00 to 17:00 (2.2–3.6 s) and smallest at
+  02–05 (−0.2–0.7 s), when few other buses are on the road to observe. **The old dip at
   19:00 and the LightGBM spike at 20:00 are gone** (they were the UTC-split artefact);
   the curves are smooth through the evening.
 - `map`: graph gain per segment (no-graph minus ours, seed-averaged), over every prediction
   whose target stop is reached through that segment, all horizons, ≥ 500 predictions.
-  1,945 of 2,111 segments qualify: the graph helps on 97.5% (median +1.4 s), and only 0.5%
+  1,945 of 2,111 segments qualify: the graph helps on 98.1% (median +1.8 s), and only 0.5%
   are worse by more than 1 s. The plot is turned 29° so Manhattan's grid runs upright.
 - `trip`: one departure, chosen automatically as the weekday 16–20 h departure with all 20
-  horizons whose mean error for ours is nearest the median (not hand-picked): now M102,
-  Sep 16, 18:00 (old build: M11). Actual vs ours (with the 5–95% interval), no graph and
-  MTA. On this typical trip all three are close and all run a little late; the interval
-  covers the actual arrivals at every stop.
+  horizons whose mean error for ours is nearest the median (not hand-picked): now M104,
+  Sep 7, 16:15 (with qsdrop: M102, Sep 16, 18:00; old build: M11). Actual vs ours (with
+  the 5–95% interval), no graph and MTA. All three predict a little early beyond h12;
+  the interval covers the actual arrival at 19 of 20 stops. Caveat: Sep 7 was Labor Day,
+  which the `dow <= 5` filter counts as a weekday; excluding holidays would pick another
+  trip.
 
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
@@ -785,8 +814,9 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually.
 ## 7. Limitations (to state in the paper)
 - One city, and one 7-month period. The test period is autumn only.
 - The ground truth depends on GPS ping density: 4% of labels have a gap > 60 s.
-- The encoder-design gain is modest (0.4 s over Graph WaveNet). The contribution is the
-  setup and graph, not a radically new network.
+- The main model's lead over Graph WaveNet is small (0.25 s) and comes from the quantile
+  loss, not the encoder (the L1 versions tie). The contribution is the setup and graph,
+  not a radically new network.
 - Without observation dropout the graph models degrade below about 50% coverage
   (§5.1); with it, accuracy on complete data drops by 0.25–0.46 s.
 - Our encoder does not beat Graph WaveNet overall on the rebuilt data (§4 finding 4); the
@@ -860,7 +890,8 @@ Issues found (none changes a conclusion; no rerun):
 - [x] Cold-start: LightGBM held out (with and without attributes).
 - [x] nn_v2: school + attributes on the main test (no gain).
 - [x] Headline model decided (2026-10-15, user): the combined recipe `stgnn_mta_qsdrop`
-  (quantiles + observation dropout) is the paper's main model. The original `stgnn_mta`
+  (quantiles + observation dropout) is the paper's main model. **Superseded 2026-10-18**
+  (see below). The original `stgnn_mta`
   stays as an ablation, and the inductive encoder is the cold-start variant.
 - [x] Service alerts: not used as a model input (decided 2026-10-15). They are live on 66%
   of route-issues, their text is generic and the cause / effect fields are empty, so they
@@ -918,8 +949,10 @@ Issues found (none changes a conclusion; no rerun):
     (27471, 27472; plus stgnn_mta_q 27478 and gwnet_mta 27479), figures. §4–§5 now hold
     the rebuilt numbers; old-build numbers that were not rerun are marked as such. Old
     numbers stay in git history (branch `restart-multistep-eta`).
-- [ ] **Decide the main model** (§4 finding 12): qsdrop (robust) vs stgnn_mta_q (most
-  accurate), or q as main + qsdrop as the robust variant. Then update the deck.
+- [x] **Main model decided (2026-10-18, user):** `stgnn_mta_q` is the main model,
+  `stgnn_mta_qsdrop` the robust variant (§4 finding 12). Paired tests rerun with q first
+  (`paired.py`), q's intervals scored under missing data (§5.8), figures switched to q
+  (`figures.py MAIN`), deck updated.
 - [ ] Next rebuild: MTA availability mask from the matched snapshot's age (code review 1).
 - [ ] GWNet in the cold-start set: running (job 27480, `jobs/plans/coldstart_gwnet.txt`,
   with `stgnn_mta_ho_abl` seeds 1–2). Its node embeddings and adaptive adjacency are
