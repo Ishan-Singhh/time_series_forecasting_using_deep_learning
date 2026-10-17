@@ -131,7 +131,7 @@ Rebuilt sizes:
 - **Chronological split:**
   - train 2026-03-01 → 07-31;
   - validation 08-01 → 08-31;
-  - test 09-01 → 10-11 (42 days; a new schedule pick D6).
+  - test 09-01 → 10-11 (41 service days; a new schedule pick D6).
 - Early stopping and model selection use **validation only**; the test set is never used
   for tuning.
 - **Scoring:**
@@ -185,218 +185,216 @@ flow-backward (spillback) and corridor neighbours plus a learned adaptive adjace
 - Epoch times: no-graph about 2–4 min; ours 7–15 min; Graph WaveNet about 23 min; DCRNN
   about 35–110 min, since its sequential diffusion steps make it launch-bound.
 
-## 4. Main results (test; `all` = horizons 1–20; mean over seeds)
+## 4. Main results (test; `all` = horizons 1–20; mean ± sd over seeds)
+
+Rebuilt data (2026-10-17): 41 test days (Sep 1–Oct 11), 25,608,377 rows on the common
+support of every model below. Tables: `results/final*.csv` (`python -m bus_eta.evaluate
+--name final`) and `results/main*.csv` (MTA-input and no-graph ablations, `--name main`).
+Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 16.
 
 | Model | Seeds | MAE (s) | RMSE | MAPE % | ≤ 60 s % | Skill vs mta_cal |
 |---|---|---|---|---|---|---|
-| **stgnn_mta_qsdrop (ours, final: quantiles + obs. dropout)** | 3 | **96.7 ± 0.1** | **158.8** | 15.2 | 49.3 | **+16.4%** |
-| stgnn_mta_q (ablation: quantiles only) | 3 | 96.6 ± 0.1 | 158.5 | 15.2 | 49.3 | +16.5% |
-| stgnn_mta (ablation: original, L1) | 3 | 96.7 ± 0.1 | 158.8 | 15.2 | 49.3 | +16.4% |
-| stgnn_mta_sdrop (ablation: obs. dropout only) | 3 | 96.8 ± 0.1 | 158.7 | 15.2 | 49.2 | +16.3% |
-| stgnn_no_mta | 3 | 96.9 ± 0.1 | 159.1 | 15.2 | 49.2 | +16.3% |
-| gwnet_mta | 3 | 97.1 ± 0.0 | 159.6 | 15.2 | 49.2 | +16.0% |
-| dcrnn_mta | 3 | 97.5 ± 0.2 | 160.7 | 15.3 | 49.1 | +15.7% |
-| tgcn_mta (Zhao et al. 2020) | 1 | 97.8 | 161.8 | 15.3 | 49.1 | +15.5% |
-| a3tgcn_mta (Bai et al. 2021) | 3 | 97.9 ± 0.1 | 161.8 | 15.3 | 49.0 | +15.4% |
-| seq_mta (no graph) | 3 | 98.5 ± 0.2 | 163.2 | 15.4 | 48.9 | +14.9% |
-| staeformer_mta (Liu et al. 2023) | 3 | 98.6 ± 0.0 | 162.3 | 15.4 | 48.8 | +14.8% |
-| convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.2 ± 0.2 | 161.3 | 15.5 | 48.7 | +14.3% |
-| lgbm_mta (20% data) | 1 | 99.2 | 183.3 | 15.4 | 48.9 | +14.3% |
-| convlstm_mta (10 ep) | 1 | 100.0 | 162.5 | 15.5 | 48.5 | +13.6% |
-| seq_no_mta | 3 | 99.9 ± 0.2 | 166.2 | 15.6 | 48.5 | +13.7% |
-| lgbm_no_mta | 1 | 100.7 | 185.6 | 15.6 | 48.5 | +13.0% |
-| hist_avg (historical average, no live data) | – | 114.9 | 189.9 | 17.9 | 44.2 | +0.6% |
-| mta_cal | – | 115.7 | 191.4 | 18.4 | 43.4 | 0 |
-| mta (published) | – | 117.5 | 197.4 | 18.7 | 43.3 | −1.6% |
-| rt | – | 135.0 | 237.6 | 21.6 | 38.2 | −16.7% |
-| sched | – | 354.8 | 588.6 | 81.8 | 17.1 | −206.7% |
+| **stgnn_mta_q** (quantile head) | 3 | **96.61 ± 0.11** | 155.8 | 15.1 | 49.3 | **+16.8%** |
+| stgnn_mta (original, L1) | 3 | 96.80 ± 0.19 | 156.5 | 15.1 | 49.3 | +16.6% |
+| gwnet_mta (Wu et al. 2019) | 3 | 96.84 ± 0.06 | 155.8 | 15.1 | 49.2 | +16.6% |
+| stgnn_mta_sdrop (obs. dropout) | 3 | 97.01 ± 0.20 | 156.7 | 15.1 | 49.2 | +16.4% |
+| **stgnn_mta_qsdrop (current main model: quantiles + obs. dropout)** | 3 | 97.06 ± 0.20 | 157.0 | 15.1 | 49.2 | +16.4% |
+| stgnn_no_mta | 3 | 97.07 ± 0.13 | 156.7 | 15.2 | 49.1 | +16.4% |
+| dcrnn_mta (Li et al. 2018) | 3 | 97.59 ± 0.14 | 158.2 | 15.2 | 49.0 | +15.9% |
+| a3tgcn_mta (Bai et al. 2021) | 3 | 97.85 ± 0.10 | 159.0 | 15.3 | 49.0 | +15.7% |
+| tgcn_mta (Zhao et al. 2020) | 1 | 97.87 | 159.4 | 15.2 | 49.1 | +15.7% |
+| seq_mta (no graph) | 3 | 98.82 ± 0.12 | 161.3 | 15.3 | 48.8 | +14.9% |
+| staeformer_mta (Liu et al. 2023) | 3 | 98.98 ± 0.21 | 161.0 | 15.4 | 48.7 | +14.7% |
+| lgbm_mta (20% of train issues) | 1 | 99.06 | 163.3 | 15.4 | 48.7 | +14.7% |
+| convlstm_mta_e20 (Petersen et al. 2019, 20 ep) | 3 | 99.41 ± 0.08 | 161.8 | 15.4 | 48.6 | +14.4% |
+| seq_no_mta | 3 | 100.17 ± 0.23 | 164.5 | 15.5 | 48.4 | +13.7% |
+| lgbm_no_mta | 1 | 100.54 | 166.3 | 15.6 | 48.3 | +13.4% |
+| hist_avg (historical average, no live data) | – | 115.34 | 190.8 | 17.9 | 44.0 | +0.6% |
+| mta_cal | – | 116.09 | 192.2 | 18.4 | 43.3 | 0 |
+| mta (published) | – | 117.85 | 198.1 | 18.7 | 43.2 | −1.5% |
+| rt | – | 134.30 | 210.0 | 21.4 | 38.0 | −15.7% |
+| sched | – | 356.18 | 590.9 | 81.6 | 17.1 | −206.8% |
 
-- The 95% day-bootstrap CI of the MAE is 93.7–99.5 for ours and 112.1–119.3 for
-  `mta_cal`. Median bias is −2.0 s for ours and +7.4 s for `mta_cal`. Within 120 s:
-  73.5% vs 68.0%.
-- Test rows on common support: 25,335,879 over 42 days.
-- Final-protocol table: `results/final*.csv` (`python -m bus_eta.evaluate --name final`).
-  Seed-averaged paired tests (daily MAE averaged over seeds, 42 days;
-  `python -m bus_eta.paired`):
+- 95% day-bootstrap CI of the MAE: 94.5–100.0 for stgnn_mta_qsdrop (seed 0), 113.1–119.9
+  for `mta_cal`. Median bias −5.2 s (ours) vs +7.4 s (`mta_cal`). Within 120 s: 73.5% vs
+  67.8%.
+- Seed-averaged paired tests (daily MAE averaged over seeds, 41 days, Wilcoxon;
+  `python -m bus_eta.paired`, plus `stgnn_mta_q` / `stgnn_mta` vs GWNet run the same way):
 
-| Final model (qsdrop, 3 seeds) vs | ΔMAE (s) | Days better | Wilcoxon p |
+| Comparison | ΔMAE (s) | Days better | p |
 |---|---|---|---|
-| stgnn_mta (original, 3) | +0.06 | 40% | 0.1 (tie) |
-| stgnn_mta_q (3) | +0.16 | 14% | 2e-6 |
-| stgnn_mta_sdrop (3) | −0.07 | 57% | 0.09 (tie) |
-| gwnet_mta (3) | −0.38 | 88% | 1e-6 |
-| dcrnn_mta (3) | −0.79 | 98% | 1e-12 |
-| a3tgcn_mta (3) | −1.18 | 100% | 5e-13 |
-| staeformer_mta (3) | −1.86 | 98% | 1e-12 |
-| seq_mta (no graph, 3) | −1.85 | 100% | 5e-13 |
-| convlstm_mta_e20 (3) | −2.67 | 100% | 5e-13 |
-| lgbm_mta | −2.59 | 100% | 5e-13 |
+| qsdrop vs stgnn_mta (original) | +0.25 | 15% | 4e-6 |
+| qsdrop vs stgnn_mta_q | +0.46 | 5% | 3e-11 |
+| qsdrop vs stgnn_mta_sdrop | +0.01 | 44% | 0.4 (tie) |
+| stgnn_mta_q vs stgnn_mta | −0.22 | 85% | 1e-8 |
+| stgnn_mta_sdrop vs stgnn_mta | +0.24 | 17% | 8e-8 |
+| **qsdrop vs gwnet_mta** | **+0.21** | 29% | 0.007 |
+| **stgnn_mta vs gwnet_mta** | −0.03 | 56% | 0.2 (tie) |
+| **stgnn_mta_q vs gwnet_mta** | **−0.25** | 78% | 8e-5 |
+| qsdrop vs dcrnn_mta | −0.55 | 98% | 4e-11 |
+| stgnn_mta vs dcrnn_mta | −0.80 | 100% | 9e-13 |
+| gwnet_mta vs dcrnn_mta | −0.77 | 95% | 6e-12 |
+| qsdrop vs a3tgcn_mta | −0.85 | 100% | 9e-13 |
+| qsdrop vs tgcn_mta | −0.88 | 100% | 9e-13 |
+| qsdrop vs seq_mta (no graph) | −1.89 | 100% | 9e-13 |
+| qsdrop vs staeformer_mta | −1.95 | 100% | 9e-13 |
+| qsdrop vs lgbm_mta | −2.15 | 100% | 9e-13 |
+| qsdrop vs convlstm_mta_e20 | −2.52 | 100% | 9e-13 |
+| qsdrop vs hist_avg | −18.13 | 100% | 9e-13 |
+| stgnn_mta vs seq_mta (graph gain, with MTA input) | −2.14 | 100% | 9e-13 |
+| stgnn_no_mta vs seq_no_mta (graph gain, no MTA input) | −3.20 | 100% | 9e-13 |
+| gwnet_mta vs seq_mta | −2.10 | 100% | 9e-13 |
+| stgnn_mta vs stgnn_no_mta (MTA input, with graph) | −0.11 | 90% | 1e-6 |
+| seq_mta vs seq_no_mta (MTA input, no graph) | −1.18 | 95% | 1e-8 |
+| lgbm_mta vs lgbm_no_mta | −1.34 | 95% | 1e-8 |
+| staeformer vs seq_mta | +0.07 | 34% | 0.2 (tie) |
+| staeformer vs lgbm_mta | −0.20 | 46% | 1 (tie) |
+| convlstm_mta_e20 vs lgbm_mta | +0.37 | 32% | 0.05 |
 
-  - Observation dropout costs a small but consistent 0.16 s versus quantiles alone (worse on
-    86% of days). That is the price of robustness (§5.1, §5.8: 98.3 vs 104.5 s at 90%
-    hidden) and is below the 0.4 s gap to the next-best encoder.
-  - ConvLSTM (3 seeds) ties LightGBM (+0.08 s, p = 0.2); GWNet beats no graph by 1.5 s
-    (100% of days).
-
-**MAE by horizon band (s):**
+**Our encoder vs Graph WaveNet, by horizon band** (seed-averaged ΔMAE vs gwnet_mta, s;
+days better):
 
 | Model | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
 |---|---|---|---|---|---|
-| ours (stgnn_mta_qsdrop, final) | 28.6 | 57.1 | 95.6 | 127.2 | 153.6 |
-| stgnn_mta (original) | 28.6 | 57.1 | 95.6 | 127.1 | 153.4 |
-| gwnet_mta | 28.8 | 57.4 | 96.0 | 127.7 | 154.1 |
-| dcrnn_mta | 28.9 | 57.5 | 96.3 | 128.3 | 155.0 |
-| a3tgcn_mta | 28.8 | 57.6 | 96.7 | 128.8 | 155.7 |
-| convlstm_mta_e20 | 28.9 | 58.2 | 97.8 | 130.6 | 158.4 |
-| seq_mta | 28.9 | 57.9 | 97.2 | 129.6 | 156.8 |
-| staeformer_mta | 28.8 | 57.8 | 97.4 | 130.0 | 156.9 |
-| lgbm_mta | **28.3** | 57.9 | 98.0 | 131.0 | 158.4 |
-| hist_avg | 33.7 | 67.4 | 113.3 | 151.6 | 183.4 |
-| mta_cal | 38.6 | 70.2 | 113.1 | 150.5 | 182.8 |
+| stgnn_mta | −0.09 (93%) | −0.17 (88%) | −0.14 (76%) | +0.03 (54%, n.s.) | +0.32 (39%, p = 0.02) |
+| stgnn_mta_q | −0.11 (93%) | −0.27 (95%) | −0.34 (85%) | −0.23 (76%) | −0.11 (66%, n.s.) |
+| stgnn_mta_qsdrop | −0.07 (90%) | −0.06 (76%) | +0.10 (n.s.) | +0.41 (27%) | +0.76 (22%) |
+
+**MAE by horizon band (s, mean over seeds):**
+
+| Model | h1 | h2–5 | h6–10 | h11–15 | h16–20 |
+|---|---|---|---|---|---|
+| stgnn_mta_q | 28.5 | **56.9** | **95.2** | **126.7** | **153.0** |
+| stgnn_mta (original) | 28.6 | 57.0 | 95.4 | 127.0 | 153.4 |
+| stgnn_mta_qsdrop (main) | 28.6 | 57.1 | 95.7 | 127.4 | 153.8 |
+| gwnet_mta | 28.6 | 57.2 | 95.6 | 127.0 | 153.1 |
+| dcrnn_mta | 28.8 | 57.4 | 96.2 | 128.1 | 154.7 |
+| a3tgcn_mta | 28.8 | 57.5 | 96.4 | 128.4 | 155.1 |
+| tgcn_mta | 28.8 | 57.5 | 96.4 | 128.5 | 155.3 |
+| seq_mta | 29.0 | 58.0 | 97.4 | 129.8 | 156.8 |
+| staeformer_mta | 29.3 | 58.1 | 97.5 | 130.0 | 157.0 |
+| convlstm_mta_e20 | 28.9 | 58.1 | 97.7 | 130.7 | 158.4 |
+| lgbm_mta | **28.4** | 57.8 | 97.6 | 130.4 | 157.6 |
+| hist_avg | 33.8 | 67.4 | 113.4 | 151.7 | 183.5 |
+| mta_cal | 38.7 | 70.3 | 113.3 | 150.7 | 182.9 |
 
 ### Findings
-1. **All learned models beat MTA's deployed predictions on all 42 test days**
-   (Wilcoxon p ≈ 5e-13), in every horizon band. Ours is +16.4% overall, +25.9% at h1
-   and +16.1% at h16–20.
+1. **All learned models beat MTA's deployed predictions on all 41 test days**
+   (p = 9e-13), in every horizon band. The main model is +16.4% overall, +26.1% at h1 and
+   +15.9% at h16–20; the historical average (+0.6%) ties MTA.
 2. **The graph helps, and the help grows with horizon.**
-   - Graph vs no graph (paired, daily): −1.9 s overall with MTA input and −3.0 s without.
-   - At h1: −0.3 / −0.5 s. At h16–20: −3.8 / −5.6 s.
-   - Better on 100% of days, p = 5e-13.
-   - Seed spread is about 0.1–0.2 s, so the gain is about 10× the noise.
+   - Graph vs no graph (paired, daily): −2.14 s with MTA input, −3.20 s without; better
+     on 100% of days.
+   - By band (stgnn_mta − seq_mta): −0.5 s at h1, −3.5 s at h16–20 (no MTA input:
+     −0.7 / −5.3 s).
+   - Seed spread is 0.1–0.2 s, so the gain is 10–20× the noise.
    - Interpretation: congestion further downstream is invisible to the bus itself but
      observed by other buses already on that street.
-3. **With the graph, MTA's predictions add nothing as input** (96.7 vs 96.9 s, 0.19 s).
-   An open-data model reconstructs and exceeds the operator's information. Without the
-   graph, MTA input is worth 1.4 s.
-4. **The graph matters more than the encoder design.**
-   - Graph WaveNet captures about 75% of our encoder's gain over no-graph.
-   - Ours vs GWNet: −0.41 s overall, better on 86% of days (p = 2e-7). The gap grows
-     with horizon (−0.14 s at h1, −0.69 s at h16–20).
-   - DCRNN (3 seeds) is 97.5 ± 0.2 s: ours is better by 1.1 s on 98% of days
-     (p = 9e-13, seed 0 vs seed 0); the final model, seed-averaged, by 0.8 s (98%, p = 1e-12). DCRNN also costs 3–10× more GPU time per epoch.
-   - Ranking ours < GWNet < DCRNN < no graph holds in every horizon band.
-   - **T-GCN / A3T-GCN** (`--encoder tgcn|a3tgcn`: a GRU whose gates are one-hop GCNs on one
-     undirected normalised adjacency; A3T-GCN adds attention over the window's hidden
-     states). A3T-GCN, 3 seeds: 97.9 ± 0.1 s, +15.4% vs MTA. Behind DCRNN (+0.39 s, worse on
-     90% of days, p = 3e-8) and GWNet (+0.80 s), ahead of no graph (−0.67 s, 100% of days).
-     The final model beats it by 1.18 s on 100% of days. Its attention adds nothing: seed 0
-     ties plain T-GCN (−0.01 s, p = 0.8). About 4 min/epoch, the cheapest graph baseline.
-   - **STAEformer** (`--encoder staeformer`: no adjacency at all; temporal then spatial
-     self-attention over all 2,111 segments, with time-of-day, day-of-week and learned
-     adaptive node embeddings). 3 seeds: 98.6 ± 0.0 s, RMSE 162.3, +14.8% vs MTA.
-     - It **ties the no-graph model** (+0.00 s vs seq, seed-averaged, p = 0.3) and is behind
-       every adjacency-based encoder: A3T-GCN +0.68 s (worse on 86% of days, p = 1e-7),
-       DCRNN +1.07 s (p = 4e-10), GWNet +1.47 s (p = 4e-11).
-     - The final model beats it by 1.86 s on 98% of days (p = 1e-12). It beats LightGBM by
-       0.73 s (p = 0.03).
-     - Near the graph models only at h1 (28.8 s); at h16–20 it is level with no graph
-       (156.9 vs 156.8 s; ours 153.6).
-     - Validation vs test: its mean best val MAE (89.07 s) equals A3T-GCN's (89.05) and
-       beats seq's (89.54), yet on test it is 0.7 s behind A3T-GCN. Its val→test gap is the
-       largest of the neural models in all 3 seeds (+9.5 s mean, vs +8.7 ours, +8.8
-       A3T-GCN, +9.0 seq). A likely reading: the learned node and time embeddings fit the
-       training period and transfer less well to the test period (school start); not
-       tested directly.
-     - Cost: about 19–20 min/epoch alone on an L40 (36 min with two runs sharing a GPU),
-       the most expensive baseline.
-     - Reading: on a sparse probe network, where most segments have no fresh observation at
-       a given time, attention without the road graph recovers nothing over the bus's own
-       trajectory. The physical adjacency is what carries the gain.
-   - Reading: typed, directed message passing (flow-forward / spillback / corridor, as in
-     ours and DCRNN) beats a single undirected adjacency; the encoder ranking follows how
-     much of the street structure the graph keeps.
-5. **Simple trees are as good one stop ahead.** LightGBM is the best model at h1 (28.3 s
-   vs ours 28.6 s). Complexity pays off only at longer horizons; a blend at h1 is an
-   option.
-6. **RMSE: neural models fix the tail; trees do not.** LightGBM's RMSE (183) barely
-   beats `mta_cal` (191), while ours is 159.
-7. **LightGBM details.**
-   - Going from 5% to 20% of training issues improved MAE by about 2 s (101.1 → 99.2).
-   - Dropping `stop_id` costs only 0.2 s (5% data), so the model is not memorising stop
-     identities.
-8. **Training longer (20 epochs) didn't help on test** (96.70 vs 96.61 s), despite about
-   0.3 s better validation MAE. It overfits the validation month. 10 epochs is the
-   protocol.
-9. **Consistency.** Predicted arrival times decrease from one stop to the next on only
-   0.19% of consecutive pairs for ours (MTA: 0.36%). No additive / monotone head is
-   needed.
-10. **Petersen et al.'s ConvLSTM** (`--arch convlstm`, a faithful re-implementation
-    given the same inputs). It runs a ConvLSTM over the (time × downstream link) grid of
-    the bus's own route, then outputs every horizon at once.
-    - 100.0 s, +13.6% vs MTA (100% of days). That reproduces the paper's own claim that
-      it beats the operator.
-    - It is worse than our no-graph sequence model (+1.5 s, 93% of days) and than
-      LightGBM on MAE (+0.7 s), but has better RMSE than LightGBM (162.5 vs 183.3).
-    - Ours beats it by 3.4 s on 100% of days (p = 5e-13). The gap grows from 0.7 s at
-      h1 to 6.5 s at h16–20. Route-local convolution sees only the bus's own corridor;
-      the graph sees crossing and parallel routes.
-    - Validation MAE was still falling at epoch 10 (90.7 vs our 88.0), so it was
-      retrained for 20 epochs (`convlstm_mta_e20`; val 90.1, flat over epochs 15–20).
-      This is now the reported baseline: **99.0 s**, +14.4% vs MTA, 0.9 s better than
-      10 epochs (98% of days, p = 3e-10). Unlike our model, it was under-trained at 10.
-    - Even at 20 epochs, ours beats it by 2.65 s on 100% of days (p = 5e-13; Sep 1–9
-      −3.0 s, Sep 10+ −2.6 s). The no-graph sequence model beats it by 0.8 s (86% of
-      days, p = 2e-6). It ties LightGBM on MAE (−0.07 s, p = 0.4) with much better RMSE
-      (161 vs 183). The gap to ours grows with horizon: 0.3 s at h1 to 4.9 s at h16–20.
-
+3. **With the graph, MTA's predictions add almost nothing as input** (−0.11 s, 90% of
+   days). An open-data model reconstructs and exceeds the operator's information. Without
+   the graph, MTA input is worth 1.2 s (LightGBM: 1.3 s).
+4. **The graph matters more than the encoder design — and on the rebuilt data our
+   encoder no longer beats Graph WaveNet overall.**
+   - stgnn_mta ties GWNet (−0.03 s, p = 0.2). It is better up to h10 and worse at
+     h16–20 (+0.32 s). With the quantile head it beats GWNet by 0.25 s (78% of days),
+     in every band except h16–20 (n.s.). The main model (qsdrop) is 0.21 s behind
+     GWNet (p = 0.007), entirely at long horizons.
+   - Old build: ours beat GWNet by 0.41 s (86% of days) with the gap growing with
+     horizon. The old GWNet runs were trained on the broken evening data, and maybe
+     with other settings (the old runs had mixed batch / max-bins), so this comparison is
+     the one to trust. **Do not claim an encoder win over GWNet.**
+   - Both typed-graph encoders (ours, GWNet) beat DCRNN by about 0.8 s (95–100% of days),
+     and DCRNN beats A3T-GCN / T-GCN; all adjacency-based encoders beat no graph.
+   - **STAEformer** (no adjacency; attention over all 2,111 segments) ties the no-graph
+     model (+0.07 s, p = 0.2) and LightGBM (p = 1). It overfits: training MAE keeps falling
+     (to 84 s) while validation stops at 89.0–89.2 s and early stopping fires (seeds 1–2).
+     About 19 min/epoch alone, the most expensive baseline. Reading: on a sparse probe
+     network, attention without the road graph recovers nothing over the bus's own
+     trajectory; the physical adjacency carries the gain.
+   - A3T-GCN ties T-GCN (97.85 vs 97.87): its attention adds nothing.
+5. **Simple trees are as good one stop ahead.** LightGBM is the best model at h1 (28.4 s
+   vs 28.5–28.6). Complexity pays off only at longer horizons.
+6. **RMSE: neural models still fix the tail, but less than before.** On the rebuilt data
+   LightGBM's RMSE is 163.3 (old 183.3; much of its old tail came from the broken
+   evening data), vs 155.8–157.0 for the graph models and 192.2 for `mta_cal`.
+7. **LightGBM details (old build, not rerun).** 5% → 20% of training issues improved MAE
+   by about 2 s; dropping `stop_id` cost only 0.2 s.
+8. **Training longer (20 epochs) didn't help on test (old build, not rerun):** 96.70 vs
+   96.61 s, despite 0.3 s better validation. 10 epochs is the protocol.
+9. **Consistency (old build):** predicted arrival times decrease from one stop to the next
+   on only 0.19% of consecutive pairs for ours (MTA: 0.36%).
+10. **Petersen et al.'s ConvLSTM** (`--arch convlstm`, re-implemented with the same inputs;
+    a ConvLSTM over the (time × downstream link) grid of the bus's own route, all horizons
+    at once), 20 epochs, 3 seeds: 99.41 s, +14.4% vs MTA (100% of days). It reproduces the
+    paper's claim of beating the operator, but is behind no graph (+0.6 s) and level with
+    LightGBM on MAE (+0.37 s, p = 0.05) with better RMSE (161.8 vs 163.3). The main model
+    beats it by 2.5 s on 100% of days; route-local convolution sees only the bus's own
+    corridor, the graph sees crossing and parallel routes.
 11. **A historical average with no live data matches MTA's deployed predictions**
-    (`python -m bus_eta.models.hist_avg`).
-    - Method: the mean TRAIN travel time from departing stop k to arriving at k+h, for the
-      same route, direction, stop, horizon, day type (weekday / Saturday / Sunday or holiday)
-      and hour. Cells with < 5 observations back off to coarser keys; 99.6% of test rows find
-      a full cell, and 0.4% fall back to the timetable.
-    - 114.9 s overall vs 115.7 for `mta_cal` (−0.98 s, better on 69% of days, p = 0.03) and
-      117.5 for MTA as published. One stop ahead it is 12.6% better than MTA (33.7 vs
-      38.6 s); from h6 onwards the two are level (within 0.7%).
-    - The operator's real-time system, which knows every bus's position, adds nothing over
-      a lookup table of past travel times. All our learned models beat it by 15.7–18.2 s.
-    - This motivates the paper: the open real-time feed carries information MTA's own
-      predictor doesn't use.
+    (`python -m bus_eta.models.hist_avg`: mean TRAIN travel time from stop k to k+h for
+    the same route, direction, stop, horizon, day type and hour, with back-off).
+    115.34 s vs 116.09 for `mta_cal` (−0.9 s, p = 0.03 in the early check) and 117.85 for
+    MTA as published; +12.7% at h1, level with MTA from h6 on. The operator's real-time
+    system adds nothing over a lookup table of past travel times; every learned model beats
+    it by 14.8–18.7 s. The open feed carries information MTA's own predictor doesn't use.
+12. **Main-model choice is open (2026-10-17).** The rebuilt data made the trade-off
+    visible: observation dropout costs 0.25–0.46 s on complete data but saves 6.6–7.4 s
+    when 90% of the network observations are missing (§5.1). Options: keep qsdrop
+    (robust), switch to stgnn_mta_q (most accurate; beats every baseline incl. GWNet), or
+    report q as the main model and qsdrop as the robust deployment variant.
 
 ## 5. Analyses
 
 ### 5.1 Missing network data: robustness (test-time only, no retraining; Jiang et al. 2022)
 A random share of (bin, segment) observations is hidden, as if fewer buses reported.
+Seed 0 of each model, MAE over all test rows (`jobs/analysis.pbs`, 2026-10-17; jobs
+27471, 27472, 27478, 27479):
 
-| Hidden | 0% | 25% | 50% | 75% | 90% |
-|---|---|---|---|---|---|
-| stgnn_mta MAE (s) | 96.5 | 97.0 | 98.3 | 101.0 | 104.5 |
-| **stgnn_mta_sdrop** (trained with observation dropout) | 96.7 | 96.8 | 97.1 | 97.5 | **98.4** |
+| Hidden | 0% | 25% | 50% | 75% | 90% | Δ at 90% |
+|---|---|---|---|---|---|---|
+| stgnn_mta (L1, no dropout) | 96.66 | 97.37 | 99.23 | 102.62 | 105.73 | +9.1 |
+| stgnn_mta_q (quantiles, no dropout) | 96.58 | 97.30 | 99.12 | 102.03 | 104.94 | +8.4 |
+| gwnet_mta (no dropout) | 96.80 | 97.12 | 98.50 | 101.08 | 102.66 | +5.9 |
+| **stgnn_mta_qsdrop** (trained with obs. dropout) | 96.96 | **97.06** | **97.25** | **97.61** | **98.32** | **+1.4** |
 
-- The no-graph model scores 98.4 s, so the graph is worth having while about half or
-  more of the observations remain.
-- Below that it is *worse* than having no graph, because it was trained only on
-  full-coverage data.
-- **Fix: observation dropout during training** (`--train-state-drop 0.9`). Each
-  training bin hides a random share p ~ U(0, 0.9) of its (step, segment) observations.
-  - Degradation at 90% hidden falls from +8.0 s to +1.7 s. The model now matches the
-    no-graph model (98.4) even with only 10% of observations, and beats it at every
-    coverage ≥ 25%.
-  - Cost at full coverage: +0.14 s (96.66 vs 96.52, 29% of days better, p = 0.003),
-    about one seed s.d.
-  - It also leans less on the graph: shuffling the network state costs +17.6 s (vs +33
-    without dropout). It uses the state but no longer depends on it.
-  - Recommendation for the paper: report both. Use dropout for deployment, or for any
-    agency with incomplete AVL coverage.
-- Relevance: agencies with partial AVL coverage.
+- The no-graph model scores 98.8 s (3 seeds). Without dropout training, every graph
+  model falls *below* no graph once roughly half or more of the observations are
+  missing: it was trained only on full-coverage data.
+- **Observation dropout during training** (`--train-state-drop 0.9`: each training bin
+  hides a random share p ~ U(0, 0.9) of its (step, segment) observations) fixes this.
+  - Degradation at 90% hidden falls from +8.4–9.1 s to +1.4 s; the model stays level with
+    no graph (98.3 vs 98.8) even with 10% of observations.
+  - It is the best model at every coverage below 100%: already at 25% hidden it is
+    ahead of q (97.06 vs 97.30) and level with GWNet (97.12).
+  - Cost at full coverage: +0.25 s vs the original, +0.46 s vs q (§4, 3 seeds).
+  - It leans less on the graph: shuffling the network state costs +25.0 s, vs +34.9 for
+    stgnn_mta and +38.4 for q (+20.6 for GWNet).
+- GWNet degrades more gracefully than our encoder without dropout (+5.9 vs +9.1 s at
+  90%): its adaptive adjacency and node embeddings give it a fallback when observations
+  vanish. With dropout, ours is 4.3 s better than GWNet at 90% hidden. GWNet with
+  dropout training was not tested.
+- Relevance: agencies with partial AVL coverage, feed outages, or newly instrumented fleets.
 
 ### 5.2 Permutation importance of the graph model (one input group shuffled on test)
+Original `stgnn_mta`, seed 0; MAE over all test rows (base 96.66 s, rebuilt data):
 
-| Group shuffled | MAE (s) | Δ vs 96.5 |
+| Group shuffled | MAE (s) | Δ vs 96.66 |
 |---|---|---|
-| Real-time segment estimate (rt, rt_fresh) | 335.6 | +239 |
-| Schedule / distances | 171.8 | +75 |
-| **Network state (graph; bins shuffled)** | 129.5 | **+33** |
-| Bus state (delays, pace, headway, …) | 107.6 | +11 |
-| MTA prediction | 104.0 | +7.4 |
-| Time of day | 103.8 | +7.2 |
-| Route id | 98.0 | +1.4 |
-| Day of week | 97.7 | +1.2 |
-| **Weather + calendar** | 96.6 | **+0.1** |
+| Real-time segment estimate (rt, rt_fresh) | 325.1 | +228 |
+| Schedule / distances | 188.7 | +92 |
+| **Network state (graph; bins shuffled)** | 131.6 | **+34.9** |
+| Time of day | 104.7 | +8.1 |
+| Bus state (delays, pace, headway, …) | 103.9 | +7.3 |
+| MTA prediction | 103.2 | +6.6 |
+| Route id | 97.9 | +1.3 |
+| Day of week | 97.8 | +1.2 |
+| **Weather + calendar** | 96.8 | **+0.1** |
 
-- **Weather adds essentially nothing** once the real-time network state is known. This
-  goes against common claims in the literature; worth stating.
-- Route identity matters little (+1.4 s), so the model generalises across routes rather
+- Main model (qsdrop) for comparison: network state +25.0, rt +241.6, schedule +87.0,
+  time +13.5, mta +9.1, bus state +8.3, dow +1.7, route +1.7, weather + calendar +0.3.
+- **Weather adds essentially nothing** once the real-time network state is known (both
+  models). This goes against common claims in the literature; worth stating.
+- Route identity matters little (+1.3 s), so the model generalises across routes rather
   than memorising them.
 
 ### 5.3 Evaluation pitfalls: contrast with Rashvand et al. (NYC, arXiv 2303.15495)
@@ -606,7 +604,7 @@ Results on the 6 held-out routes, old build (MAE, s):
   - useful for unseen segments and for interpretation (seconds per signal);
   - **Part-time lane activity** varies by hour and cannot be absorbed by a static
     embedding, so it is the most likely to help.
-- **Results on the main test (seed 0, paired daily, 42 days):**
+- **Results on the main test (old build, not rerun; seed 0, paired daily, 42 days):**
 
 | Comparison | ΔMAE (s) | Days better | Wilcoxon p |
 |---|---|---|---|
@@ -638,118 +636,134 @@ Results on the 6 held-out routes, old build (MAE, s):
     neural models.
 
 ### 5.6 Error analysis by operating condition (`python -m bus_eta.error_analysis`)
-MAE (s) on the main common support, all horizons. Skill is vs `mta_cal`; graph gain is
-seq_mta − stgnn_mta. Files: `results/error_analysis.csv`, `error_analysis_by_route.csv`.
+MAE (s) on the common support of the compared models (seed 0), all horizons, rebuilt data
+(41 days, 25.6M rows). Skill is vs `mta_cal`; graph gain is seq_mta − stgnn_mta. Files:
+`results/error_analysis.csv`, `error_analysis_by_route.csv`.
 
-| Condition | Rows | mta_cal | MTA published | lgbm | seq | ours | Ours skill | Graph gain |
+| Condition | Rows | mta_cal | MTA published | lgbm | seq | ours (stgnn_mta) | Ours skill | Graph gain |
 |---|---|---|---|---|---|---|---|---|
-| Night 0–6 | 2.2M | 83.0 | 82.8 | 66.0 | 66.5 | 65.7 | 20.8% | 0.8 |
-| AM peak 6–10 | 5.4M | 107.0 | 113.6 | 89.6 | 89.5 | 88.0 | 17.8% | 1.5 |
-| Midday 10–16 | 8.2M | 131.4 | 134.3 | 114.4 | 113.6 | 111.0 | 15.5% | 2.6 |
-| PM peak 16–20 | 5.5M | 122.2 | 121.8 | 105.3 | 105.1 | 103.3 | 15.5% | 1.8 |
-| Evening 20–24 | 4.1M | 104.4 | 101.9 | 91.1 | 88.1 | 86.8 | 16.8% | 1.3 |
-| Weekday | 19.2M | 118.1 | 119.8 | 100.8 | 100.3 | 98.7 | 16.5% | 1.7 |
-| Weekend | 6.2M | 108.1 | 110.4 | 94.2 | 92.5 | 90.2 | 16.5% | 2.2 |
-| Dry | 20.7M | 117.1 | 119.0 | 100.5 | 99.7 | 98.0 | 16.3% | 1.7 |
-| Light rain (<1 mm/h) | 3.1M | 111.7 | 113.2 | 95.7 | 94.7 | 92.1 | 17.5% | 2.6 |
-| Heavy rain (≥1 mm/h) | 1.5M | 104.6 | 106.1 | 88.8 | 88.3 | 86.3 | 17.4% | 1.9 |
-| SBS routes | 2.6M | 106.0 | 105.7 | 88.5 | 88.2 | 86.8 | 18.1% | 1.4 |
-| Local routes | 22.7M | 116.8 | 118.9 | 100.4 | 99.6 | 97.7 | 16.3% | 1.9 |
-| Service alert live on route | 16.7M | 119.9 | 122.2 | 103.4 | 102.4 | 100.4 | 16.3% | 2.0 |
-| No alert | 8.6M | 107.4 | 108.5 | 91.0 | 90.7 | 89.2 | 17.0% | 1.5 |
+| Night 0–6 | 2.2M | 83.0 | 82.8 | 66.0 | 66.3 | 65.5 | 21.2% | 0.9 |
+| AM peak 6–10 | 5.4M | 107.1 | 113.6 | 89.6 | 89.7 | 87.9 | 17.9% | 1.7 |
+| Midday 10–16 | 8.2M | 131.4 | 134.3 | 114.4 | 113.9 | 111.1 | 15.5% | 2.8 |
+| PM peak 16–20 | 5.7M | 123.5 | 123.0 | 106.6 | 106.5 | 104.2 | 15.6% | 2.3 |
+| Evening 20–24 | 4.1M | 104.5 | 102.1 | 87.9 | 87.7 | 86.0 | 17.7% | 1.7 |
+| Weekday | 19.3M | 118.6 | 120.2 | 100.8 | 100.8 | 98.9 | 16.6% | 1.9 |
+| Weekend | 6.3M | 108.4 | 110.6 | 93.7 | 92.9 | 90.3 | 16.8% | 2.7 |
+| Dry | 20.9M | 117.6 | 119.5 | 100.3 | 100.3 | 98.3 | 16.4% | 2.0 |
+| Light rain (<1 mm/h) | 3.1M | 112.0 | 113.5 | 96.1 | 95.2 | 92.1 | 17.8% | 3.1 |
+| Heavy rain (≥1 mm/h) | 1.6M | 104.5 | 105.5 | 88.5 | 87.9 | 85.9 | 17.8% | 2.1 |
+| SBS routes | 2.6M | 106.5 | 106.2 | 88.5 | 88.9 | 86.9 | 18.4% | 2.0 |
+| Local routes | 23.0M | 117.2 | 119.2 | 100.3 | 100.0 | 97.9 | 16.5% | 2.1 |
+| Service alert live on route | 16.8M | 120.5 | 122.7 | 103.3 | 102.9 | 100.6 | 16.5% | 2.3 |
+| No alert | 8.8M | 107.7 | 108.6 | 91.0 | 91.1 | 89.4 | 17.0% | 1.8 |
+| Before school (Sep 1–9) | 5.2M | 104.7 | 105.8 | 88.6 | 88.2 | 86.9 | 17.1% | 1.3 |
+| School (Sep 10+) | 20.4M | 119.0 | 120.9 | 101.7 | 101.6 | 99.3 | 16.6% | 2.3 |
 
-- **The gain is uniform.** Skill vs MTA is 15.5–20.8% in every time period, day type,
-  weather and route type. **All 41 routes improve** (skill 9.9–30.9%). The graph gain
-  is ≥ 0 on every route (0.0 on M35, up to 4.5 s on M20, 4.2 on M50, 3.8 on M12).
-- **Midday, not the peaks, is hardest** for every predictor (ours 111 s vs 88 / 103 s at
-  the AM / PM peaks). It is also where the graph helps most (2.6 s): long dwell times,
+- **The gain is uniform.** Skill vs MTA is 15.5–21.2% in every time period, day type,
+  weather and route type. **All 41 routes improve** (skill 9.6–33.6%). The graph gain
+  is positive on every route (1.1 s on M14D+, M35, M10 up to 4.3 s on M20, 3.9 on M12,
+  3.7 on M66). Old build: ≥ 0, with M35 at 0.0.
+- **Midday, not the peaks, is hardest** for every predictor (ours 111 s vs 88 / 104 s at
+  the AM / PM peaks). It is also where the graph helps most (2.8 s): long dwell times,
   deliveries and curb conflicts make downstream conditions matter more.
+- **The evening is no longer an outlier.** Old build: LightGBM was 3 s worse than seq at
+  20–24 h (91.1 vs 88.1), an artefact of the UTC split; now they are level (87.9 vs 87.7),
+  and the evening graph gain rose from 1.3 to 1.7 s.
 - **MTA's published ETA is worst in the AM peak** (−6.1% vs the calibrated version):
   its bias is time-dependent. Our models need no such correction.
 - **Rain does not make prediction harder.** Rainy hours have *lower* error for all
   models; this is confounded with time of day, so it is not causal. It agrees with the
-  near-zero weather permutation importance (§5.2): the network state already reflects
-  the weather's effect on traffic.
-- **SBS routes** (off-board fare, bus lanes) are easier (86.8 vs 97.7 s) and have higher
+  near-zero weather permutation importance (§5.2). The graph gain is largest in light
+  rain (3.1 s).
+- **SBS routes** (off-board fare, bus lanes) are easier (86.9 vs 97.9 s) and have higher
   skill.
 - **Service alerts** are live on 66% of route-issues. The MTA texts are generic ("You may
   wait longer…"). Error is about 11 s higher when an alert is live, for every model.
-  Skill drops only slightly (16.3 vs 17.0%). Alerts mark harder conditions but carry
+  Skill drops only slightly (16.5 vs 17.0%). Alerts mark harder conditions but carry
   little specific information; a free-text alert feature is low priority.
-- The school-start split is in §5.5.
+- **School start:** error rises for every model after Sep 10 (99.3 vs 86.9 s for ours),
+  and so does the graph gain (2.3 vs 1.3 s). Skill is stable (16.6 vs 17.1%).
 
 ### 5.7 Uncertainty: quantile head (`--quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95`)
 Same graph model, one output per quantile, pinball loss; the median is the point ETA.
-Scored with `python -m bus_eta.uncertainty` (`results/uncertainty.csv`).
+Scored with `python -m bus_eta.uncertainty` (`results/uncertainty_final.csv`; rebuilt
+data, all 26.3M test rows, 3 seeds each).
 
-- **The point accuracy is not hurt.** The median scores MAE 96.40 vs 96.52 for the L1
-  model (−0.12 s, 67% of days, p = 0.01; within seed noise). Validation MAE 87.9 is the
-  best of any run.
-- **Calibration** (all horizons): share of arrivals below q5 / q10 / q25 / q50 / q75 /
-  q90 / q95 is 4.8 / 9.6 / 24.2 / 48.6 / 73.6 / 89.0 / 94.2%. Quantiles never cross.
+- **The point accuracy improves.** stgnn_mta_q is the most accurate model on the rebuilt
+  data: 96.61 s, −0.22 s vs the L1 original (85% of days, p = 1e-8), −0.25 s vs GWNet (§4).
+- **Calibration** (all horizons, mean of 3 seeds): share of arrivals below q5 / q10 /
+  q25 / q50 / q75 / q90 / q95 is 4.9 / 9.7 / 24.2 / 48.5 / 72.9 / 88.4 / 93.9% for
+  stgnn_mta_q, and 4.8 / 9.5 / 23.8 / 47.7 / 72.4 / 88.0 / 93.6% for qsdrop. Quantiles
+  cross on ≤ 0.01% of rows.
 
-| Horizon | 50% int. coverage | width (s) | 80% int. coverage | width (s) | 90% int. coverage | width (s) |
-|---|---|---|---|---|---|---|
-| h1 | 50.6 | 46 | 80.6 | 89 | 90.5 | 118 |
-| h2–5 | 49.8 | 90 | 79.8 | 175 | 89.8 | 231 |
-| h6–10 | 49.4 | 150 | 79.3 | 291 | 89.3 | 380 |
-| h11–15 | 49.2 | 199 | 79.0 | 385 | 89.1 | 503 |
-| h16–20 | 48.9 | 239 | 78.8 | 463 | 88.9 | 603 |
+| Horizon | 50% int. coverage | 80% int. coverage | 90% int. coverage | 90% width (s) |
+|---|---|---|---|---|
+| h1 | 49.7 | 80.2 | 90.1 | 116 |
+| h2–5 | 48.9 | 79.1 | 89.3 | 228 |
+| h6–10 | 48.5 | 78.4 | 88.8 | 374 |
+| h11–15 | 48.2 | 78.0 | 88.4 | 492 |
+| h16–20 | 47.9 | 77.7 | 88.2 | 588 |
+| all | 48.5 | 78.5 | 88.8 | 378 |
 
-- Slight under-coverage at long horizons (−1.2 pt at h16–20 for 80%) is a typical
-  test-month shift. It could be corrected with split-conformal recalibration on
-  validation (future work).
-- **The intervals are adaptive, not just horizon-wide bands.** Split test predictions
-  into fifths by 80% interval width: mean absolute error is 33 / 61 / 87 / 116 / 184 s,
-  while coverage stays 80.3 / 79.5 / 79.2 / 79.2 / 78.7%. Spearman(width, |error|) =
-  0.51. The model knows which ETAs are unreliable.
+  (qsdrop, mean of 3 seeds; stgnn_mta_q is within 0.2 pt everywhere.)
+- Slight under-coverage that grows with horizon (−2.3 pt for the 80% interval at
+  h16–20; slightly more than the old build's −1.2) and a median biased a little early
+  (47.7% below q50). A typical test-period shift (school start); split-conformal
+  recalibration on validation would correct it (future work).
+- **Adaptive intervals (old build, not rerun):** split into fifths by 80% interval width,
+  the mean absolute error was 33 / 61 / 87 / 116 / 184 s with coverage 80.3–78.7% in every
+  fifth; Spearman(width, |error|) = 0.51. The model knows which ETAs are unreliable.
 - Use case: "arriving in 6–9 min" displays, and transfer / missed-connection risk.
   MTA publishes only a point ETA.
 
-### 5.8 Candidate final model: quantile head + observation dropout (`stgnn_mta_qsdrop`)
+### 5.8 Main model: quantile head + observation dropout (`stgnn_mta_qsdrop`)
 
 | Hidden network observations | 0% | 25% | 50% | 75% | 90% |
 |---|---|---|---|---|---|
-| Median MAE (s) | 96.6 | 96.8 | 97.0 | 97.5 | 98.3 |
-| 90% interval coverage (%) | 89.2 | – | 89.3 | – | 89.3 |
-| 90% interval mean width (s) | 383 | – | 385 | – | 388 |
+| Median MAE (s, seed 0) | 96.96 | 97.06 | 97.25 | 97.61 | 98.32 |
+| 90% interval coverage (%) | 88.7 | 88.7 | 88.8 | 88.8 | 88.9 |
+| 90% interval mean width (s) | 374 | 375 | 377 | 379 | 383 |
 
-- The two improvements combine without conflict. Accuracy is within seed noise of the
-  best model at full coverage (96.4–96.7). It is robust to missing data like
-  `stgnn_mta_sdrop`, and calibrated like `stgnn_mta_q`.
-- **The intervals stay calibrated when data go missing.** Widths grow slightly (+1%)
+(`results/uncertainty_drop.csv`.)
+
+- **The intervals stay calibrated when data go missing.** Widths grow slightly (+2%)
   instead of coverage collapsing.
-- Shuffling the network state costs +21.7 s (vs +33 for the plain model).
-- Proposal: make this the paper's main model. Train it for 3 seeds in the final
-  protocol, alongside the inductive variant for cold start.
-- **Final protocol, 3 seeds (seed 0 + 27324, 27327):** MAE 96.75 ± 0.11 s, RMSE 158.8,
-  +16.4% vs `mta_cal`; ties the original model (§4 table). 90% interval coverage per seed:
-  89.2 / 89.0 / 89.1% (mean width 383 / 378 / 383 s); quantiles cross on ≤ 0.003% of
-  rows. `stgnn_mta_q` seeds 1–2: 89.0 / 88.9%. (`results/uncertainty_final.csv`.)
+- 3 seeds: MAE 97.06 ± 0.20 s, +16.4% vs `mta_cal`; 90% coverage 88.7 / 88.7 / 89.2%
+  (mean width 374 / 374 / 384 s).
+- **Rebuilt data: the combination is no longer free.** Old build: it tied the original
+  (+0.06 s, p = 0.1). Now: +0.25 s vs the original and +0.46 s vs quantiles alone; the
+  cost comes from observation dropout (sdrop alone: +0.24 s) and is concentrated at long
+  horizons (+0.76 s vs GWNet at h16–20). In exchange it is the best model whenever ≥ 25%
+  of observations are missing (§5.1). See §4 finding 12 for the open choice.
+- Cold start (§5.4): its inductive variant costs 0.61 s vs the L1 inductive model.
 
 ### 5.9 Paper figures (`python -m bus_eta.figures`, → `docs/figures/*.pdf|png`)
 Numbers are cached in `results/figdata/<figure>.csv`; restyling needs no recomputation.
-Neural models are averaged over 3 seeds unless stated.
+Neural models are averaged over 3 seeds unless stated. All six regenerated on the
+rebuilt data (`--recompute`, 2026-10-17) and checked visually.
 
 - `horizon`: MAE and skill vs `mta_cal` for h = 1..20, all main baselines. Skill peaks at
   h1 (about 26%, where LightGBM is best) and settles at 15–16% from h6 on. The graph models
-  fan out above no graph as h grows. The historical average is +12.6% at h1 and ≤ 0 from
-  h7 on.
+  fan out above no graph as h grows. The historical average is +12.7% at h1 and ≤ 0 from
+  about h7 on.
 - `robustness`: §5.1 as a curve (seed 0 of `stgnn_mta` and `stgnn_mta_qsdrop`), with the
-  no-graph model (98.5 s, 3 seeds) as a horizontal line.
-- `permutation`: §5.2 as bars, log scale (original `stgnn_mta`, seed 0, base 96.5 s).
-- `tod`: MAE by issue hour for ours, no graph, LightGBM and `mta_cal`, plus the graph gain.
-  The gain is largest from 11:00 to 17:00 (2.2–3.0 s) and smallest overnight (01–05:
-  0.1–0.8 s), when few other buses are on the road to observe. The dip at 19:00 and the
-  LightGBM spike at 20:00 are a data artefact (§7, UTC day boundary).
+  no-graph model (98.8 s, 3 seeds) as a horizontal line. Values are on the common
+  support, so they differ from the §5.1 table by < 0.2 s.
+- `permutation`: §5.2 as bars, log scale (original `stgnn_mta`, seed 0).
+- `tod`: MAE by issue hour for the main model, no graph, LightGBM and `mta_cal`, plus the
+  graph gain. The gain is largest from 11:00 to 17:00 (2.0–2.9 s) and smallest at
+  02–05 (0.1–0.5 s), when few other buses are on the road to observe. **The old dip at
+  19:00 and the LightGBM spike at 20:00 are gone** (they were the UTC-split artefact);
+  the curves are smooth through the evening.
 - `map`: graph gain per segment (no-graph minus ours, seed-averaged), over every prediction
   whose target stop is reached through that segment, all horizons, ≥ 500 predictions.
-  1,945 of 2,111 segments qualify: the graph helps on 97% (median +1.4 s), and only 0.8%
-  are worse by more than 1 s. Largest gains on the midtown and downtown avenues and
-  crosstown streets. The plot is turned 29° so Manhattan's grid runs upright.
+  1,945 of 2,111 segments qualify: the graph helps on 97.5% (median +1.4 s), and only 0.5%
+  are worse by more than 1 s. The plot is turned 29° so Manhattan's grid runs upright.
 - `trip`: one departure, chosen automatically as the weekday 16–20 h departure with all 20
-  horizons whose mean error for ours is nearest the median (not hand-picked): M11, Sep 16,
-  18:56. Actual vs ours (with the 5–95% interval), no graph and MTA.
+  horizons whose mean error for ours is nearest the median (not hand-picked): now M102,
+  Sep 16, 18:00 (old build: M11). Actual vs ours (with the 5–95% interval), no graph and
+  MTA. On this typical trip all three are close and all run a little late; the interval
+  covers the actual arrivals at every stop.
 
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
@@ -773,11 +787,13 @@ Neural models are averaged over 3 seeds unless stated.
 - The ground truth depends on GPS ping density: 4% of labels have a gap > 60 s.
 - The encoder-design gain is modest (0.4 s over Graph WaveNet). The contribution is the
   setup and graph, not a radically new network.
-- The graph is trained on full-coverage data and degrades below about 50% coverage
-  (§5.1).
+- Without observation dropout the graph models degrade below about 50% coverage
+  (§5.1); with it, accuracy on complete data drops by 0.25–0.46 s.
+- Our encoder does not beat Graph WaveNet overall on the rebuilt data (§4 finding 4); the
+  contribution is the protocol, the graph gain, robustness and cold start, not the encoder.
 - Bus-lane direction isn't matched (parallel heading only); OSM signal completeness is
   not verified.
-- Scored on a fixed 25% hash sample of test issues (25.3M predictions over all 42 days);
+- Scored on a fixed 25% hash sample of test issues (25.6M predictions over all 41 days);
   see the EVAL_FRAC note in §8.
 - **UTC day boundary (found 2026-10-16 from the `tod` figure; fixed the same day and
   everything rebuilt and retrained on branch `fix-utc-day-boundary`, see §2 "Data rebuild").**
@@ -826,8 +842,8 @@ Neural models are averaged over 3 seeds unless stated.
   - cold start with the final recipe, `stgnn_mta_v2indqsd_ho_abl` (inductive + quantiles
     + dropout, nn_v2, held out + ablation 0.3), seeds 0–2 (27330–27332);
   - `convlstm_mta_e20` s1–2 and `dcrnn_mta` s2 (27333–27335).
-  - Scoring stays on EVAL_FRAC = 0.25 (25.3M rows): significance is computed over days,
-    so a 4× larger sample of the same 42 days adds almost no power. It also keeps every
+  - Scoring stays on EVAL_FRAC = 0.25 (25.6M rows on the rebuilt data): significance is
+    computed over days, so a 4× larger sample of the same 41 days adds almost no power. It also keeps every
     side analysis valid, e.g. the random-split model, which trained on the other 75%.
 - [x] Historical-average baseline (finding 11).
 - [x] T-GCN / A3T-GCN baselines (finding 4): `a3tgcn_mta` seeds 0–2 (27347–27349),
@@ -845,7 +861,7 @@ Neural models are averaged over 3 seeds unless stated.
 - [x] Figures (§5.9): `horizon`, `robustness`, `permutation`, `tod`, `map`, `trip`.
 - [x] UTC day-boundary split of trips (§7) and the DST start_date bug: fixed in `arrivals` /
   `samples` (2026-10-16, branch `fix-utc-day-boundary`); data rebuilt (27396).
-- [ ] Final protocol retrained on the rebuilt data (2026-10-16). Every model now uses one
+- [x] Final protocol retrained on the rebuilt data (2026-10-16 → 10-17). Every model now uses one
   setting, batch 2048 and max-bins 16; the old runs had mixed settings, e.g. `seq_mta`
   seeds 0–1 at batch 1024, `dcrnn_mta` seed 0 at 4096 and seeds 1–2 at max-bins 48.
   - CPU: baselines 27397, hist_avg 27398, lgbm_no_mta 27399, lgbm_mta 27400,
@@ -859,10 +875,18 @@ Neural models are averaged over 3 seeds unless stated.
     stgnn_mta ×3, seq_mta s0–1, gwnet s0). The rest run **one job at a time** until GPU 1
     is fixed: `jobs/plans/final_serial.txt` (the same 49 runs, most important first,
     DCRNN seeds last), jobs 27432 and 27433 (48 h each, the second `afterany` the first).
-    Running alone, an epoch takes 37 s instead of 58 s.
-  - Then re-run the evaluations and analyses (final, paired, uncertainty, error analysis,
-    robustness and permutation, figures) and replace every number in this file. Old
+    Running alone, an epoch takes 37 s instead of 58 s. All 49 runs finished in job 27432
+    (Oct 17, 22:40; DCRNN about 18 min/epoch alone vs 108 min when shared).
+  - Evaluations and analyses rerun on 10-17: final, main, paired, uncertainty (+ under
+    missing data), error analysis, randsplit, cold start, robustness and permutation
+    (27471, 27472; plus stgnn_mta_q 27478 and gwnet_mta 27479), figures. §4–§5 now hold
+    the rebuilt numbers; old-build numbers that were not rerun are marked as such. Old
     numbers stay in git history (branch `restart-multistep-eta`).
+- [ ] **Decide the main model** (§4 finding 12): qsdrop (robust) vs stgnn_mta_q (most
+  accurate), or q as main + qsdrop as the robust variant. Then update the deck.
+- [ ] Optional: GWNet trained with observation dropout, and GWNet in the cold-start set
+  (its node embeddings and adaptive adjacency are transductive, so it should fail on
+  unseen routes like our transductive encoder; untested).
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
