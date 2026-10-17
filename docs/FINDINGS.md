@@ -922,10 +922,9 @@ Issues found (none changes a conclusion; no rerun):
   accurate), or q as main + qsdrop as the robust variant. Then update the deck.
 - [ ] Next rebuild: MTA availability mask from the matched snapshot's age (code review 1).
 - [ ] GWNet in the cold-start set: running (job 27480, `jobs/plans/coldstart_gwnet.txt`,
-  with `stgnn_mta_ho_abl` seeds 1–2). Optional: GWNet trained with observation dropout.
-- [ ] (was) Optional: GWNet trained with observation dropout, and GWNet in the cold-start set
-  (its node embeddings and adaptive adjacency are transductive, so it should fail on
-  unseen routes like our transductive encoder; untested).
+  with `stgnn_mta_ho_abl` seeds 1–2). Its node embeddings and adaptive adjacency are
+  transductive, so it should fail on unseen routes like our transductive encoder.
+  Optional: GWNet trained with observation dropout.
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
