@@ -486,13 +486,15 @@ Original `stgnn_mta`, seed 0; MAE over all test rows (base 96.66 s, rebuilt data
 - **Spatial input ablation (BusTr):** with probability 0.3 per training issue, the route
   id and static segment ids are replaced by "unknown".
 
-**Rebuilt data (2026-10-16; `results/coldstart_final*.csv`, 41 days, 5.20M rows on the 6
-held-out routes).** All runs retrained, 3 seeds unless marked; pooled MAE, mean ± sd over
-seeds:
+**Rebuilt data (2026-10-16, Graph WaveNet and transductive seeds 1–2 added 2026-10-18;
+`results/coldstart_final*.csv`, 41 days, 5.20M rows on the 6 held-out routes).** All runs
+retrained, 3 seeds unless marked; pooled MAE, mean ± sd over seeds:
 
 | Model | All | h1 | h16–20 | Skill vs mta_cal |
 |---|---|---|---|---|
-| stgnn_mta, trained *with* these routes (upper bound) | 96.82 ± 0.10 | 28.90 | 152.35 | +16.6% |
+| **main model stgnn_mta_q, trained *with* these routes (upper bound)** | 96.64 ± 0.05 | 28.87 | 152.05 | +16.8% |
+| stgnn_mta, trained with these routes | 96.82 ± 0.10 | 28.90 | 152.35 | +16.6% |
+| gwnet_mta, trained with these routes | 96.84 ± 0.20 | 28.91 | 152.35 | +16.6% |
 | qsdrop (robust variant), trained with these routes | 97.08 ± 0.20 | 28.89 | 152.86 | +16.4% |
 | seq_mta, trained with these routes | 98.80 ± 0.10 | 29.35 | 155.84 | +14.9% |
 | lgbm_mta, trained with these routes (1 run) | 99.02 | 28.77 | 156.38 | +14.7% |
@@ -502,7 +504,8 @@ seeds:
 | inductive final recipe (quantiles + obs. dropout, `v2indqsd`) | 101.90 ± 0.19 | 29.95 | 159.87 | +12.3% |
 | seq, held out + ablation | 103.51 ± 0.20 | 30.43 | 162.81 | +10.9% |
 | LightGBM, held out (1 run) | 105.20 | 30.51 | 164.31 | +9.4% |
-| transductive graph, held out + ablation (1 seed) | 110.09 | 30.93 | 173.75 | +5.2% |
+| Graph WaveNet, held out + ablation (`gwnet_mta_ho_abl`) | 109.30 ± 1.13 | 31.25 | 171.80 | +5.9% |
+| transductive graph (ours), held out + ablation | 111.21 ± 1.24 | 31.16 | 176.01 | +4.2% |
 | mta_cal | 116.14 | 40.79 | 180.32 | 0 |
 
 Paired daily MAE, seeds averaged (41 days; Wilcoxon):
@@ -511,7 +514,11 @@ Paired daily MAE, seeds averaged (41 days; Wilcoxon):
 |---|---|---|---|
 | inductive vs seq + ablation | −2.29 | 98% | 3e-11 |
 | inductive vs LightGBM held out | −4.03 | 100% | 9e-13 |
-| inductive vs transductive graph held out | −8.72 | 100% | 9e-13 |
+| inductive vs transductive graph held out (3 seeds) | −9.83 | 100% | 9e-13 |
+| inductive vs Graph WaveNet held out | −7.86 | 100% | 9e-13 |
+| Graph WaveNet held out vs transductive graph held out | −1.97 | 95% | 2e-11 |
+| Graph WaveNet held out vs seq + ablation | +5.57 | 2% | 3e-12 |
+| Graph WaveNet held out vs trained with them | +12.37 | 0% | 9e-13 |
 | inductive final recipe (qsd) vs inductive L1 | +0.61 | 10% | 1e-8 |
 | qsd vs seq + ablation | −1.67 | 93% | 1e-10 |
 | qsd vs LightGBM held out | −3.42 | 100% | 9e-13 |
@@ -519,10 +526,21 @@ Paired daily MAE, seeds averaged (41 days; Wilcoxon):
 | no features vs all attributes | +0.25 | 24% | 0.003 |
 | no features vs seq + ablation | −2.04 | 100% | 9e-13 |
 | inductive (held out) vs stgnn_mta trained with them | +4.52 | 0% | 9e-13 |
+| inductive (held out) vs main model q trained with them | +4.69 | 0% | 9e-13 |
 | LightGBM held out vs trained with them | +6.21 | 0% | 9e-13 |
 
+- **Graph WaveNet fails on unseen routes, as predicted** (2026-10-18, job 27480): 109.30 s,
+  5.6 s *worse* than no graph (better on 2% of days) and 12.4 s worse than when trained
+  with the routes. Its learned node embeddings and adaptive adjacency are transductive,
+  like ours; it fails slightly less badly than our transductive encoder (−2.0 s, 95% of
+  days). Both transductive encoders vary a lot across seeds on unseen routes (sd 1.1–1.2 s
+  vs 0.2–0.4 s for the others): what untrained embeddings do is luck. The inductive encoder
+  beats Graph WaveNet by 7.9 s on 100% of days. So the cold-start result is not specific to
+  our encoder: **any encoder with per-node learned identity fails to transfer; removing it
+  fixes transfer.**
+- The transductive graph now has 3 seeds: 111.21 ± 1.24 s (seed 0 alone: 110.09).
 - Every conclusion below survives the rebuild: inductive graph < seq + ablation < LightGBM
-  held out < transductive graph < mta_cal; message passing over anonymous segments is what
+  held out < Graph WaveNet held out < transductive graph < mta_cal; message passing over anonymous segments is what
   transfers (no features still beats no graph by 2.0 s on 100% of days); signals and bus
   lanes add nothing beyond segment length (now an exact tie, p = 0.8).
 - **Changed:** the final recipe is no longer free on cold start. It costs 0.61 s vs the L1
@@ -954,10 +972,10 @@ Issues found (none changes a conclusion; no rerun):
   (`paired.py`), q's intervals scored under missing data (§5.8), figures switched to q
   (`figures.py MAIN`), deck updated.
 - [ ] Next rebuild: MTA availability mask from the matched snapshot's age (code review 1).
-- [ ] GWNet in the cold-start set: running (job 27480, `jobs/plans/coldstart_gwnet.txt`,
-  with `stgnn_mta_ho_abl` seeds 1–2). Its node embeddings and adaptive adjacency are
-  transductive, so it should fail on unseen routes like our transductive encoder.
-  Optional: GWNet trained with observation dropout.
+- [x] GWNet in the cold-start set (job 27480, `jobs/plans/coldstart_gwnet.txt`, with
+  `stgnn_mta_ho_abl` seeds 1–2; done 2026-10-18): it fails like our transductive encoder,
+  109.3 s, worse than no graph (§5.4).
+- [ ] Optional: GWNet trained with observation dropout; GWNet with a quantile head.
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
