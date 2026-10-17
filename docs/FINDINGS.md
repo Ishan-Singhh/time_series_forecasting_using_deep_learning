@@ -814,6 +814,42 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually.
   - Fix (user decision 2026-10-16: fix and retrain everything): arrivals are keyed by
     service date, built from the archive files of d and d+1; see §2 "Data rebuild".
 
+### Code review (2026-10-17, after the rebuild)
+Every stage was read end to end: `static_gtfs`, `geo`, `arrivals`, `graph`, `network_state`,
+`samples`, `features`, `context`, `stgnn_data`, `stgnn` (all encoders, training, eval-only),
+`lgbm`, `baselines`, `hist_avg`, `rashvand_mlp`, `evaluate`, `paired`, `uncertainty`,
+`error_analysis`. Checked and fine:
+- **Causality.** Targets need `arr_seen > t_issue`. Other buses' runs and dwells, headways and
+  MTA predictions are as-of joins on the time they were revealed. The network state files each
+  traversal under the bin of its revealing ping, and the model reads only bins that ended
+  before the issue bin. GPS projection is a forward filter (uses only past pings). Open-Meteo's
+  hourly precipitation is the sum of the *preceding* hour, so joining on the issue hour is
+  causal.
+- **Splits.** Normalisation statistics and `mta_cal` fitted on train only; early stopping on
+  validation only; the scored test issues are a fixed hash sample shared by every model (the
+  LightGBM runs train on exactly the neural models' 76.35M rows); held-out routes are removed
+  from train and val, and route index 0 is the "unknown" id.
+- **Keys.** trip_id is unique across the four schedule picks (136,310 ids), and
+  (trip_id, stop_idx) is unique in `stop_times`, so the trip_id-only joins are safe.
+
+Issues found (none changes a conclusion; no rerun):
+1. **MTA availability uses the future.** `samples.mta_predictions` keeps an MTA prediction if
+   the stop's *last* appearance in the day's feed is ≥ t_issue − 60 s, i.e. a whole-day maximum.
+   The value itself is causal (the latest snapshot at or before t_issue), but the
+   "MTA still predicting this stop" mask can look ahead. Measured on Sep 16: 1.07% of the
+   accepted MTA inputs come from a snapshot older than 60 s (0.36% > 120 s, 0.18% > 300 s),
+   and 0.3% of rows are rejected. Impact: MTA input is worth 0.11 s with the graph (§4), and
+   the same rows are scored for every model, so the effect on any comparison is far below
+   seed noise. Fix (next rebuild): accept only if the matched snapshot is ≤ 60 s old.
+2. **Cold start is "unseen in labels, not in sensing".** The held-out routes' issues are
+   removed from training, but their buses still feed the network state in every month, so
+   segments used only by those routes have observed live speeds during training. This is a
+   protocol choice (a tracked route that has no ETA model yet), and the paper must state it.
+   A stricter variant (also hide their traversals from the training state) is future work.
+3. Minor: the error-analysis rain groups use the previous hour's precipitation (fine as a
+   feature, slightly lagged as a condition); one of 2,111 segments is shorter than the 25 m
+   departure/arrival threshold gap.
+
 ## 8. Open items / TODO
 - [x] DCRNN seeds 0–1, GWNet seed 2 (in table).
 - [x] Random-split pitfall result (LightGBM): +2.8 s optimistic, ties our graph model (§5.3).
@@ -884,7 +920,10 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually.
     numbers stay in git history (branch `restart-multistep-eta`).
 - [ ] **Decide the main model** (§4 finding 12): qsdrop (robust) vs stgnn_mta_q (most
   accurate), or q as main + qsdrop as the robust variant. Then update the deck.
-- [ ] Optional: GWNet trained with observation dropout, and GWNet in the cold-start set
+- [ ] Next rebuild: MTA availability mask from the matched snapshot's age (code review 1).
+- [ ] GWNet in the cold-start set: running (job 27480, `jobs/plans/coldstart_gwnet.txt`,
+  with `stgnn_mta_ho_abl` seeds 1–2). Optional: GWNet trained with observation dropout.
+- [ ] (was) Optional: GWNet trained with observation dropout, and GWNet in the cold-start set
   (its node embeddings and adaptive adjacency are transductive, so it should fail on
   unseen routes like our transductive encoder; untested).
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is

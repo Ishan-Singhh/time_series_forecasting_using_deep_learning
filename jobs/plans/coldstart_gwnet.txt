@@ -1,0 +1,8 @@
+# Cold start for Graph WaveNet (2026-10-17): held out + ablation, as the other cold-start runs.
+# GWNet's node embeddings and adaptive adjacency are per-segment (transductive), like our
+# transductive encoder; plus seeds 1-2 of that transductive run so every row has 3 seeds.
+gwnet_mta_ho_abl 0 --encoder gwnet --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+gwnet_mta_ho_abl_s1 1 --encoder gwnet --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+gwnet_mta_ho_abl_s2 2 --encoder gwnet --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_ho_abl_s1 1 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
+stgnn_mta_ho_abl_s2 2 --holdout-routes M102 M7 M14D+ M5 M15+ M42 --ablate-p 0.3
