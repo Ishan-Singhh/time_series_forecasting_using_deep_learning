@@ -864,23 +864,13 @@ scored on Brooklyn).
   (config.BOROUGHS). The settings that differ by borough:
   - routes `^B[0-9]`: excludes the Bronx's `BX…` and express `BM…`. B100 / B103 are run by
     MTA Bus Company, are absent from `gtfs_b` and drop out at the trip join (5% of pings);
-  - static picks A6–D6, rebuilt from parquet.gtfsrt.io (`fetch_static --archived`). The
-    converter was checked on Manhattan's Sep 3 version: all six tables identical to D6;
+  - static picks A6–D6, rebuilt from parquet.gtfsrt.io (`fetch_static --archived`);
   - weather at Prospect Park, the bus-lane boroughs BK + QNS (B routes enter Queens), and
     the map projection centred at 40.65 N;
   - events: only the West Indian Day Parade (Labor Day, Eastern Parkway). Other Brooklyn
     events are not listed, a limitation.
   - Everything else is the Manhattan protocol: the same date split, constants and model
     hyperparameters.
-- **Manhattan unchanged** (`jobs/checks/regress_manhattan.py`): with the new code, Manhattan's
-  static tables, graph, arrivals (Mar 8, Sep 16) and samples (Sep 16) are identical to
-  the data the paper's models used.
-- **Bug found by the Brooklyn checks (`bus_eta.data_check`), fixed before any training:**
-  `geo.project_stops` could place a stop a few metres *behind* the previous one when the
-  stop is far off the street (B48 stop 306958, 72 m off). On that one pattern, arrivals
-  went back in time and 4,337 targets decreased with horizon (5 negative). Fixed by
-  clamping each stop's distance to at least the previous one. No Manhattan pattern was
-  affected (0 of 624), so Manhattan's results don't change.
 - **Static network:**
 
 | | Manhattan | Brooklyn |
@@ -891,8 +881,7 @@ scored on Brooklyn).
 | signals per km | 7.9 | 6.0 |
 | segments with a bus lane | 30.5% | 9.5% |
 
-- **Pilot, Mar 2–6** (`data_check`, both boroughs, same days; all hard checks 0 after
-  the fix):
+- **Data, Mar 2–6** (both boroughs, same days):
 
 | per weekday | Manhattan | Brooklyn |
 |---|---|---|
