@@ -54,7 +54,7 @@ def score(name: str) -> pl.DataFrame:
                 rows.append({"model": name, "nominal_%": nominal, "kind": kind, "band": band_label(a, b),
                              "n": len(y), "coverage_%": 100 * np.mean(miss == 0), "width_mean_s": w.mean(),
                              "interval_score_s": np.mean(w + 2 / alpha * miss),
-                             "val_raw_coverage_%": 100 * np.mean((v["y"] >= v[lo]) & (v["y"] <= v[hi])),
+                             "val_raw_coverage_%": 100 * ((v["y"] >= v[lo]) & (v["y"] <= v[hi])).mean(),
                              "offset_mean_s": float(np.mean([off[h] for h in range(a, b + 1)]))})
     return pl.DataFrame(rows)
 

@@ -197,6 +197,7 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 | **stgnn_mta_q (main model: quantile head)** | 3 | **96.61 ± 0.11** | 155.8 | 15.1 | 49.3 | **+16.8%** |
 | stgnn_mta (original, L1) | 3 | 96.80 ± 0.19 | 156.5 | 15.1 | 49.3 | +16.6% |
 | gwnet_mta (Wu et al. 2019) | 3 | 96.84 ± 0.06 | 155.8 | 15.1 | 49.2 | +16.6% |
+| gwnet_mta_q (GWNet + our quantile head) | 3 | 96.95 ± 0.32 | 156.0 | 15.1 | 49.2 | +16.5% |
 | stgnn_mta_sdrop (obs. dropout) | 3 | 97.01 ± 0.20 | 156.7 | 15.1 | 49.2 | +16.4% |
 | stgnn_mta_qsdrop (robust variant: + obs. dropout) | 3 | 97.06 ± 0.20 | 157.0 | 15.1 | 49.2 | +16.4% |
 | stgnn_no_mta | 3 | 97.07 ± 0.13 | 156.7 | 15.2 | 49.1 | +16.4% |
@@ -228,6 +229,7 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 | stgnn_mta (original, L1) | −0.22 | 85% | 1e-8 |
 | stgnn_mta_qsdrop (robust variant) | −0.46 | 95% | 3e-11 |
 | **gwnet_mta** | **−0.25** | 78% | 8e-5 |
+| **gwnet_mta_q (GWNet + the same quantile head)** | **−0.34** | 80% | 8e-6 |
 | dcrnn_mta | −1.01 | 100% | 9e-13 |
 | a3tgcn_mta | −1.31 | 100% | 9e-13 |
 | tgcn_mta | −1.34 | 100% | 9e-13 |
@@ -240,6 +242,7 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 | stgnn_mta (original) | +0.25 | 15% | 4e-6 |
 | stgnn_mta_sdrop | +0.01 | 44% | 0.4 (tie) |
 | gwnet_mta | +0.21 | 29% | 0.007 |
+| gwnet_mta_q | +0.12 | 46% | 0.3 (tie) |
 | dcrnn_mta | −0.55 | 98% | 4e-11 |
 | seq_mta | −1.89 | 100% | 9e-13 |
 | lgbm_mta | −2.15 | 100% | 9e-13 |
@@ -248,6 +251,8 @@ Every neural run uses one setting: 10 epochs, patience 3, batch 2048, max-bins 1
 | stgnn_mta vs gwnet_mta | −0.03 | 56% | 0.2 (tie) |
 | stgnn_mta vs dcrnn_mta | −0.80 | 100% | 9e-13 |
 | gwnet_mta vs dcrnn_mta | −0.77 | 95% | 6e-12 |
+| gwnet_mta_q vs gwnet_mta (quantile head on GWNet) | +0.09 | 34% | 0.007 |
+| gwnet_mta_q vs stgnn_mta | +0.13 | 29% | 0.01 |
 | stgnn_mta vs seq_mta (graph gain, with MTA input) | −2.14 | 100% | 9e-13 |
 | stgnn_no_mta vs seq_no_mta (graph gain, no MTA input) | −3.20 | 100% | 9e-13 |
 | gwnet_mta vs seq_mta | −2.10 | 100% | 9e-13 |
@@ -275,6 +280,7 @@ days better):
 | stgnn_mta (original) | 28.6 | 57.0 | 95.4 | 127.0 | 153.4 |
 | stgnn_mta_qsdrop (robust) | 28.6 | 57.1 | 95.7 | 127.4 | 153.8 |
 | gwnet_mta | 28.6 | 57.2 | 95.6 | 127.0 | 153.1 |
+| gwnet_mta_q | 28.7 | 57.2 | 95.6 | 127.1 | 153.4 |
 | dcrnn_mta | 28.8 | 57.4 | 96.2 | 128.1 | 154.7 |
 | a3tgcn_mta | 28.8 | 57.5 | 96.4 | 128.4 | 155.1 |
 | tgcn_mta | 28.8 | 57.5 | 96.4 | 128.5 | 155.3 |
@@ -304,10 +310,19 @@ days better):
    encoder no longer beats Graph WaveNet overall.**
    - stgnn_mta ties GWNet (−0.03 s, p = 0.2). It is better up to h10 and worse at
      h16–20 (+0.32 s). With the quantile head (the main model) it beats GWNet by 0.25 s
-     (78% of days, p = 8e-5), in every band except h16–20 (n.s.). Since the L1 encoders
-     tie, this win comes from the training loss, not the architecture; GWNet with a
-     quantile head was not tested. The robust variant (qsdrop) is 0.21 s behind GWNet
-     (p = 0.007), entirely at long horizons.
+     (78% of days, p = 8e-5), in every band except h16–20 (n.s.).
+   - **The quantile loss does not explain the win on its own** (2026-10-18). GWNet with the
+     same quantile head (`gwnet_mta_q`, same 7 quantiles, 3 seeds, job 27485) gets slightly
+     *worse*: 96.95 ± 0.32 s, +0.09 s vs GWNet with L1 (better on 34% of days, p = 0.007),
+     and the main model beats it by 0.34 s (80% of days, p = 8e-6). Our encoder gains
+     0.22 s from the pinball loss; GWNet loses 0.09 s. So the edge is the combination of our
+     encoder and the quantile loss, and it survives giving the baseline the same loss.
+     Still small (0.25–0.34 s), so the paper should say "matches or slightly beats GWNet",
+     not "beats GWNet by a wide margin". GWNet's intervals with the quantile head are as
+     well calibrated as ours (90%: 88.8% vs 89.0% coverage, width 377 vs 378 s), so the
+     calibration comes from the loss, not the encoder.
+   - The robust variant (qsdrop) is 0.21 s behind GWNet (p = 0.007), entirely at long
+     horizons, and ties GWNet with the quantile head (+0.12 s, p = 0.3).
    - Old build: ours beat GWNet by 0.41 s (86% of days) with the gap growing with
      horizon. The old GWNet runs were trained on the broken evening data, and maybe
      with other settings (the old runs had mixed batch / max-bins), so this comparison is
@@ -723,6 +738,7 @@ data, all 26.3M test rows, 3 seeds each).
 
 - **The point accuracy improves.** stgnn_mta_q is the most accurate model on the rebuilt
   data: 96.61 s, −0.22 s vs the L1 original (85% of days, p = 1e-8), −0.25 s vs GWNet (§4).
+  The same head on GWNet doesn't improve it (+0.09 s, §4 finding 4).
 - **Calibration** (all horizons, mean of 3 seeds): share of arrivals below q5 / q10 /
   q25 / q50 / q75 / q90 / q95 is 4.9 / 9.7 / 24.2 / 48.5 / 72.9 / 88.4 / 93.9% for
   stgnn_mta_q, and 4.8 / 9.5 / 23.8 / 47.7 / 72.4 / 88.0 / 93.6% for qsdrop. Quantiles
@@ -742,8 +758,35 @@ data, all 26.3M test rows, 3 seeds each).
   difference of the shares below q75 − q25 and q90 − q10.)
 - Slight under-coverage that grows with horizon (−2.3 pt for the 80% interval at
   h16–20; slightly more than the old build's −1.2) and a median biased a little early
-  (47.7% below q50). A typical test-period shift (school start); split-conformal
-  recalibration on validation would correct it (future work).
+  (47.7% below q50). A typical test-period shift (school start).
+- **Conformal recalibration** (2026-10-18; `python -m bus_eta.conformal`,
+  `results/conformal*.csv`). Split CQR (Romano et al. 2019), calibrated separately for each
+  horizon on the validation month (Aug; predictions from `stgnn --eval-only <m> --split
+  val`), scored on the same test rows; mean of 3 seeds:
+
+| Interval | Band | Raw coverage | CQR coverage | Raw width (s) | CQR width (s) | Interval score raw → CQR |
+|---|---|---|---|---|---|---|
+| 90% | h1 | 90.3 | 89.7 | 117 | 115 | 170.5 → 170.5 |
+| 90% | h6–10 | 88.9 | 89.5 | 375 | 381 | 539.8 → 539.3 |
+| 90% | h16–20 | 88.3 | 89.1 | 588 | 602 | 863.9 → 862.0 |
+| 90% | all | 89.0 | 89.5 | 378 | 385 | 548.3 → 547.6 |
+| 80% | all | 78.7 | 79.3 | 288 | 293 | 447.7 → 447.4 |
+| 50% | all | 48.7 | 49.4 | 148 | 151 | 311.7 → 311.7 |
+
+  - Recalibration closes about 60% of the coverage gap for 1.8% wider intervals (+7 s at
+    90%), and the gap no longer grows as much with horizon (h16–20: 88.3 → 89.1%). It
+    narrows h1, which was over-covered. The interval score improves only slightly.
+  - **The raw intervals are already close to calibrated.** On validation they cover
+    89.5% (90% interval; 89.2% at h16–20), so the corrections are small (mean offset
+    4 s at 90%, from −0.8 s at h1 to +6.8 s at h16–20).
+  - The remaining 0.5-pt shortfall is drift from the validation month to the test month
+    (test covers 0.5 pt less than validation before recalibration). Split conformal
+    assumes the two are exchangeable, which a time split breaks. Online / adaptive
+    conformal (e.g. ACI, Gibbs & Candès 2021) would track it; future work.
+  - qsdrop: the same picture (90%: 88.9 → 89.4%, width 378 → 384 s).
+  - Paper: report the raw intervals as the main result (near-nominal without any
+    post-processing) and CQR as a one-line, cheap fix that brings every band within
+    1 pt of nominal.
 - **Adaptive intervals (old build, not rerun):** split into fifths by 80% interval width,
   the mean absolute error was 33 / 61 / 87 / 116 / 184 s with coverage 80.3–78.7% in every
   fifth; Spearman(width, |error|) = 0.51. The model knows which ETAs are unreliable.
@@ -832,13 +875,14 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually. "Ours" is the mai
 ## 7. Limitations (to state in the paper)
 - One city, and one 7-month period. The test period is autumn only.
 - The ground truth depends on GPS ping density: 4% of labels have a gap > 60 s.
-- The main model's lead over Graph WaveNet is small (0.25 s) and comes from the quantile
-  loss, not the encoder (the L1 versions tie). The contribution is the setup and graph,
-  not a radically new network.
+- The main model's lead over Graph WaveNet is small (0.25 s; 0.34 s when GWNet gets the
+  same quantile head, which doesn't help it). The L1 versions tie. The contribution is
+  the setup and graph, not a radically new network.
 - Without observation dropout the graph models degrade below about 50% coverage
   (§5.1); with it, accuracy on complete data drops by 0.25–0.46 s.
-- Our encoder does not beat Graph WaveNet overall on the rebuilt data (§4 finding 4); the
-  contribution is the protocol, the graph gain, robustness and cold start, not the encoder.
+- Our encoder with L1 does not beat Graph WaveNet (§4 finding 4); only with the quantile
+  loss does it pull ahead, by 0.25–0.34 s. The contribution is the protocol, the graph gain,
+  robustness and cold start, not the encoder.
 - Bus-lane direction isn't matched (parallel heading only); OSM signal completeness is
   not verified.
 - Scored on a fixed 25% hash sample of test issues (25.6M predictions over all 41 days);
@@ -918,9 +962,8 @@ Issues found (none changes a conclusion; no rerun):
 - [x] Training with random state dropout (robustness fix, §5.1).
 - [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
-- [ ] Conformal recalibration of the quantiles on validation (running 2026-10-18): split CQR per
-  horizon, `bus_eta.conformal`; validation predictions from `stgnn --eval-only <m> --split val`
-  for q and qsdrop, 3 seeds each (job 27486, after 27485).
+- [x] Conformal recalibration (2026-10-18, §5.7): split CQR per horizon, 90% coverage
+  89.0 → 89.5% for +7 s width; the rest is val → test drift. Optional: adaptive conformal.
 - [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
 - [x] Final protocol (started and scored 2026-10-15; batch size 2048, as in seed 0); all
   runs done, `dcrnn_mta` s2 (27335) last, at 11:35:
@@ -977,8 +1020,8 @@ Issues found (none changes a conclusion; no rerun):
 - [x] GWNet in the cold-start set (job 27480, `jobs/plans/coldstart_gwnet.txt`, with
   `stgnn_mta_ho_abl` seeds 1–2; done 2026-10-18): it fails like our transductive encoder,
   109.3 s, worse than no graph (§5.4).
-- [ ] GWNet with the quantile head, 3 seeds (running 2026-10-18, job 27485,
-  `jobs/plans/gwnet_q.txt`): does the quantile loss explain q's lead over GWNet?
+- [x] GWNet with the quantile head, 3 seeds (2026-10-18, job 27485): 96.95 s, slightly
+  worse than GWNet with L1; the main model beats it by 0.34 s (§4 finding 4).
 - [ ] Optional: GWNet trained with observation dropout.
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
