@@ -855,6 +855,67 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually. "Ours" is the mai
   which the `dow <= 5` filter counts as a weekday; excluding holidays would pick another
   trip.
 
+### 5.10 Second borough: Brooklyn (in progress, branch `brooklyn`)
+Started 2026-10-18 (user). Why Brooklyn and not Queens: §8. Goal: replicate the main claims
+on a second network, and test the inductive encoder zero-shot (trained on Manhattan,
+scored on Brooklyn).
+
+- **Pipeline.** `BUS_ETA_BOROUGH=brooklyn` switches every module to `data/brooklyn/`
+  (config.BOROUGHS). The settings that differ by borough:
+  - routes `^B[0-9]`: excludes the Bronx's `BX…` and express `BM…`. B100 / B103 are run by
+    MTA Bus Company, are absent from `gtfs_b` and drop out at the trip join (5% of pings);
+  - static picks A6–D6, rebuilt from parquet.gtfsrt.io (`fetch_static --archived`). The
+    converter was checked on Manhattan's Sep 3 version: all six tables identical to D6;
+  - weather at Prospect Park, the bus-lane boroughs BK + QNS (B routes enter Queens), and
+    the map projection centred at 40.65 N;
+  - events: only the West Indian Day Parade (Labor Day, Eastern Parkway). Other Brooklyn
+    events are not listed, a limitation.
+  - Everything else is the Manhattan protocol: the same date split, constants and model
+    hyperparameters.
+- **Manhattan unchanged** (`jobs/checks/regress_manhattan.py`): with the new code, Manhattan's
+  static tables, graph, arrivals (Mar 8, Sep 16) and samples (Sep 16) are identical to
+  the data the paper's models used.
+- **Bug found by the Brooklyn checks (`bus_eta.data_check`), fixed before any training:**
+  `geo.project_stops` could place a stop a few metres *behind* the previous one when the
+  stop is far off the street (B48 stop 306958, 72 m off). On that one pattern, arrivals
+  went back in time and 4,337 targets decreased with horizon (5 negative). Fixed by
+  clamping each stop's distance to at least the previous one. No Manhattan pattern was
+  affected (0 of 624), so Manhattan's results don't change.
+- **Static network:**
+
+| | Manhattan | Brooklyn |
+|---|---|---|
+| routes in the static feed / trips (4 picks) | 41 / 136,310 | 55 / 181,795 |
+| graph segments / edges | 2,111 / 3,891 | 4,529 / 7,407 |
+| median segment length | 222 m | 218 m |
+| signals per km | 7.9 | 6.0 |
+| segments with a bus lane | 30.5% | 9.5% |
+
+- **Pilot, Mar 2–6** (`data_check`, both boroughs, same days; all hard checks 0 after
+  the fix):
+
+| per weekday | Manhattan | Brooklyn |
+|---|---|---|
+| GPS pings | 0.76M | 1.14M |
+| pings matched to the static picks | 96.8% | 95.3% |
+| trips / stop events | 7.8k / 239k | 10.7k / 450k |
+| median stops per trip | 21 | 42 |
+| labelled arrivals | 91.5% | 91.2% |
+| arrival interpolated over > 60 s | 10.1% | 20.0% |
+| issues (samples) / targets per issue | 202k / 13.1 | 386k / 14.8 |
+| MTA prediction available (h1) | 99.6% | 99.4% |
+| MAE: schedule / real-time profile / MTA | 256 / 132 / 111 s | 378 / 121 / 104 s |
+
+  Brooklyn has twice as many labels interpolated over more than 60 s, but the same share of
+  labels survives the 90 s cut. Its schedule is much worse than Manhattan's (378 s vs 256 s),
+  while MTA's predictions are slightly better (104 s vs 111 s).
+- **Plan:** `jobs/plans/brooklyn.txt`, 3 seeds each of the main model (q), no graph,
+  L1, robust variant (qsdrop) and Graph WaveNet. On CPU: the baselines, historical
+  average, LightGBM and the random-split check. Transfer: the Manhattan cold-start
+  checkpoints (`v2ind_ho_abl`, `v2indqsd_ho_abl`, `seq_mta_ho_abl`, 3 seeds each), scored
+  on Brooklyn test packed with Manhattan's statistics (`stgnn_data --stats-from`,
+  `stgnn --transfer-from`).
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |

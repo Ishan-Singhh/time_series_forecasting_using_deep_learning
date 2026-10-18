@@ -1,0 +1,19 @@
+# Brooklyn replication (2026-10-18), reduced protocol: same hyperparameters as Manhattan
+# (10 epochs, patience 3, batch 2048, max-bins 16), 3 seeds, most important first.
+#   qsub -v PLAN=jobs/plans/brooklyn.txt,BUS_ETA_BOROUGH=brooklyn jobs/stgnn.pbs
+# Not repeated here: DCRNN, STAEformer, (A3)T-GCN, ConvLSTM, the no-MTA ablations.
+stgnn_mta_q 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+stgnn_mta_q_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95
+seq_mta 0 --no-graph
+seq_mta_s1 1 --no-graph
+seq_mta_s2 2 --no-graph
+stgnn_mta 0
+stgnn_mta_s1 1
+stgnn_mta_s2 2
+stgnn_mta_qsdrop 0 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s1 1 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+stgnn_mta_qsdrop_s2 2 --quantiles 0.05 0.1 0.25 0.5 0.75 0.9 0.95 --train-state-drop 0.9
+gwnet_mta 0 --encoder gwnet
+gwnet_mta_s1 1 --encoder gwnet
+gwnet_mta_s2 2 --encoder gwnet
