@@ -10,11 +10,11 @@ from datetime import date
 import polars as pl
 import requests
 
-from bus_eta.config import INTERIM, ROOT, TIMEZONE
+from bus_eta.config import B, INTERIM, ROOT, TIMEZONE
 from bus_eta.parallel import write_atomic
 
 OUT = INTERIM / "context"
-CENTRAL_PARK = (40.7829, -73.9654)
+WEATHER_POINT = B["weather_point"]  # Central Park for Manhattan, Prospect Park for Brooklyn
 
 # US federal holidays in the study period (observed dates).
 FEDERAL_HOLIDAYS = [
@@ -30,7 +30,7 @@ def fetch_weather(start: date, end: date) -> pl.DataFrame:
     resp = requests.get(
         "https://archive-api.open-meteo.com/v1/archive",
         params={
-            "latitude": CENTRAL_PARK[0], "longitude": CENTRAL_PARK[1],
+            "latitude": WEATHER_POINT[0], "longitude": WEATHER_POINT[1],
             "start_date": start.isoformat(), "end_date": end.isoformat(),
             "hourly": "temperature_2m,precipitation,rain,snowfall,windspeed_10m,weathercode",
             "timezone": TIMEZONE,
@@ -63,10 +63,10 @@ def school_days(days: pl.Series) -> pl.Series:
 
 def build_calendar(start: date, end: date) -> pl.DataFrame:
     """Daily calendar: school days (official NYCPS calendars), summer break, federal
-    holidays and the number of major Manhattan events."""
+    holidays and the number of major events in the borough (config events_csv)."""
     days = pl.DataFrame({"service_date": pl.date_range(start, end, "1d", eager=True)})
     events = (
-        pl.read_csv(ROOT / "major_manhattan_events.csv")
+        pl.read_csv(ROOT / B["events_csv"])
         .select(pl.col("event_date").str.strptime(pl.Date, "%Y-%m-%d").alias("service_date"))
         .group_by("service_date").len().rename({"len": "n_major_events"})
     )

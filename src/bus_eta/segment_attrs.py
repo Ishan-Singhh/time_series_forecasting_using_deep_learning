@@ -2,7 +2,7 @@
 
 Sources (fetched on the login node, cached under data/raw/):
   OpenStreetMap highway=traffic_signals nodes (Overpass API)   -> osm/traffic_signals.json
-  NYC DOT "Bus Lanes - Local Streets" (ycrg-ses3), Manhattan   -> nyc/bus_lanes.json
+  NYC DOT "Bus Lanes - Local Streets" (ycrg-ses3), the borough -> nyc/bus_lanes.json
 
 Per segment node (straight line between its two stops):
   n_signals          signalised intersections within SIGNAL_RADIUS_M of the segment; OSM
@@ -30,13 +30,13 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse import coo_matrix
 from scipy.spatial import cKDTree
 
-from bus_eta.config import DATA, INTERIM
+from bus_eta.config import B, DATA, INTERIM
 from bus_eta.geo import to_xy
 
 RAW_SIGNALS = DATA / "raw" / "osm" / "traffic_signals.json"
 RAW_LANES = DATA / "raw" / "nyc" / "bus_lanes.json"
 GRAPH = INTERIM / "graph"
-BBOX = (40.68, -74.03, 40.89, -73.90)  # Manhattan with margin (S, W, N, E)
+BBOX = B["bbox"]  # the borough with margin (S, W, N, E)
 SIGNAL_RADIUS_M = 15.0
 SIGNAL_MERGE_M = 25.0
 LANE_RADIUS_M = 12.0
@@ -53,7 +53,7 @@ def fetch() -> None:
     RAW_SIGNALS.parent.mkdir(parents=True, exist_ok=True)
     RAW_SIGNALS.write_text(r.text)
     r = requests.get("https://data.cityofnewyork.us/resource/ycrg-ses3.json",
-                     params={"$where": "boro='MAN'", "$limit": 50000}, timeout=300)
+                     params={"$where": "boro in(" + ",".join(f"'{b}'" for b in B["dot_boros"]) + ")", "$limit": 50000}, timeout=300)
     r.raise_for_status()
     RAW_LANES.parent.mkdir(parents=True, exist_ok=True)
     RAW_LANES.write_text(r.text)

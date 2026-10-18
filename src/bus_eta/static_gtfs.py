@@ -1,4 +1,5 @@
-"""Build static tables for every schedule pick in data/raw/gtfs_static/<PICK>/gtfs_m.zip.
+"""Build static tables for every schedule pick in data/raw/gtfs_static/<PICK>/<feed>.zip
+(config.FEED: gtfs_m for Manhattan, gtfs_b for Brooklyn).
 
 Outputs (data/interim/static/), every table keyed by `pick` because shape_id/stop
 geometry can differ between picks:
@@ -19,7 +20,7 @@ from datetime import date, timedelta
 import numpy as np
 import polars as pl
 
-from bus_eta.config import INTERIM, RAW_STATIC
+from bus_eta.config import FEED, INTERIM, RAW_STATIC, ROUTE_REGEX
 from bus_eta.geo import cumulative_distance, project_stops, to_xy
 
 OUT = INTERIM / "static"
@@ -54,9 +55,11 @@ def resolve_service_dates(calendar: pl.DataFrame, calendar_dates: pl.DataFrame) 
 
 
 def build_pick(pick: str) -> dict[str, pl.DataFrame]:
-    zf = zipfile.ZipFile(RAW_STATIC / pick / "gtfs_m.zip")
+    zf = zipfile.ZipFile(RAW_STATIC / pick / f"{FEED}.zip")
 
-    trips = read_txt(zf, "trips.txt").select(
+    # Only the borough's routes, as in the RT archive (gtfs_b also carries 9 Queens and 4
+    # express routes run from Brooklyn depots; gtfs_m is all M routes, so a no-op there).
+    trips = read_txt(zf, "trips.txt").filter(pl.col("route_id").str.contains(ROUTE_REGEX)).select(
         "trip_id", "route_id", pl.col("direction_id").cast(pl.Int8), "service_id", "shape_id", "block_id")
 
     stops = read_txt(zf, "stops.txt").select(
@@ -138,8 +141,11 @@ def build_pick(pick: str) -> dict[str, pl.DataFrame]:
 
 
 def main() -> None:
-    picks = sorted(p.name for p in RAW_STATIC.iterdir() if (p / "gtfs_m.zip").exists())
+    picks = sorted(p.name for p in RAW_STATIC.iterdir() if (p / f"{FEED}.zip").exists())
     built = [build_pick(p) for p in picks]
+    # Downstream joins key on trip_id alone, so a trip_id may appear in only one pick.
+    ids = pl.concat([b["trips"].select("trip_id") for b in built])
+    assert ids["trip_id"].is_unique().all(), f"trip_ids repeated across picks {picks}"
     OUT.mkdir(parents=True, exist_ok=True)
     for name in built[0]:
         df = pl.concat([b[name] for b in built])

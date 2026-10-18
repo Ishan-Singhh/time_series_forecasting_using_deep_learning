@@ -1,4 +1,5 @@
-"""Download daily GTFS-RT archives (vehicle positions, trip updates, service alerts) for Manhattan routes.
+"""Download daily GTFS-RT archives (vehicle positions, trip updates, service alerts) for the borough's routes
+(config.BOROUGH; Manhattan by default).
 
 Resumable: days whose output files already exist are skipped, and files are written
 atomically (tmp + rename), so an interrupted run never leaves a truncated parquet.
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import polars as pl
 
-from bus_eta.config import RAW_RT, ROUTE_PREFIX, RT_BASE_URL, RT_FEED_B64, RT_FIRST_DATE
+from bus_eta.config import RAW_RT, ROUTE_REGEX, RT_BASE_URL, RT_FEED_B64, RT_FIRST_DATE
 
 VP_COLS = [
     "feed_timestamp", "timestamp", "vehicle_id", "trip_id", "route_id", "direction_id",
@@ -38,30 +39,30 @@ def feed_url(kind: str, d: date) -> str:
     return f"{RT_BASE_URL}/{kind}/date={d.isoformat()}/base64url={RT_FEED_B64[kind]}/data.parquet"
 
 
-def scan_manhattan(kind: str, d: date, cols: list[str]) -> pl.DataFrame:
+def scan_borough(kind: str, d: date, cols: list[str]) -> pl.DataFrame:
     return (
         pl.scan_parquet(feed_url(kind, d))
-        .filter(pl.col("route_id").str.starts_with(ROUTE_PREFIX))
+        .filter(pl.col("route_id").str.contains(ROUTE_REGEX))
         .select(cols)
         .collect(engine="streaming")
     )
 
 
 def fetch_vehicle_positions(d: date) -> pl.DataFrame:
-    vp = scan_manhattan("vehicle_positions", d, VP_COLS)
+    vp = scan_borough("vehicle_positions", d, VP_COLS)
     # The same GPS ping is repeated across feed snapshots until the bus reports again.
     return vp.unique(subset=["vehicle_id", "timestamp"], keep="first").sort(["vehicle_id", "timestamp"])
 
 
 def fetch_trip_updates(d: date) -> pl.DataFrame:
-    tu = scan_manhattan("trip_updates", d, TU_COLS).sort(TU_KEY + ["feed_timestamp"])
+    tu = scan_borough("trip_updates", d, TU_COLS).sort(TU_KEY + ["feed_timestamp"])
     changed = (pl.col("arrival_time") != pl.col("arrival_time").shift(1).over(TU_KEY)).fill_null(True)
     last_seen = pl.col("feed_timestamp") == pl.col("feed_timestamp").max().over(TU_KEY)
     return tu.filter(changed | last_seen)
 
 
 def fetch_service_alerts(d: date) -> pl.DataFrame:
-    sa = scan_manhattan("service_alerts", d, SA_KEY + [
+    sa = scan_borough("service_alerts", d, SA_KEY + [
         "feed_timestamp", "active_period_start", "active_period_end", "stop_id", "header_text", "description_text"])
     return sa.group_by(SA_KEY).agg(
         pl.col("feed_timestamp").min().alias("first_seen"), pl.col("feed_timestamp").max().alias("last_seen"),
