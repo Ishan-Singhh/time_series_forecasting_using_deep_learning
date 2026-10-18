@@ -1,8 +1,10 @@
-"""Manhattan regression (run from the repo root on a CPU node:
-    python jobs/checks/regress_manhattan.py <scratch dir>)
-: the borough-switch code must reproduce the paper's Manhattan data.
-Rebuilds static tables, graph, arrivals and samples for two days into a scratch folder and
-compares them with data/interim and data/processed (which the paper's models used)."""
+"""Manhattan regression: the borough-switch code must reproduce the paper's Manhattan data.
+
+Rebuilds static tables, graph, arrivals (2 days) and samples (1 day) into a scratch folder and
+compares them with data/interim and data/processed, which the paper's models used.
+
+    python jobs/checks/regress_manhattan.py <scratch dir>     # repo root, CPU node
+"""
 import sys
 from datetime import date
 from pathlib import Path
