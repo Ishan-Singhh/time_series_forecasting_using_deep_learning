@@ -70,7 +70,7 @@ Last updated: 2026-10-14 (branch `restart-multistep-eta`)
 
 ### Data rebuild (2026-10-16, branch `fix-utc-day-boundary`)
 Two data bugs were found and fixed. Everything downstream was rebuilt (27396) and every model
-is being retrained. The old build is kept in `data/archive_utc/`.
+is retrained. The old build (`data/archive_utc/`) was deleted on 2026-10-18; its numbers stay in git history (branch `restart-multistep-eta`).
 1. **UTC day files split trips (§7).**
    - Arrivals are now keyed by service date. Day d is built from the archive files of d and
      d+1 and keeps the trips of d, so every trip is projected once, from its whole track.
@@ -889,7 +889,7 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually. "Ours" is the mai
   see the EVAL_FRAC note in §8.
 - **UTC day boundary (found 2026-10-16 from the `tod` figure; fixed the same day and
   everything rebuilt and retrained on branch `fix-utc-day-boundary`, see §2 "Data rebuild").**
-  The description below is of the old build (`data/archive_utc/`).
+  The description below is of the old build (deleted 2026-10-18).
   - The GTFS-rt archive is stored in daily files by UTC date. `arrivals` projects each
     file on its own, so a trip running across 00:00 UTC (20:00 EDT, 19:00 EST) is split
     in two, each half without the other's arrivals. That is 3.6–4.1% of trips per day
