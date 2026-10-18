@@ -14,6 +14,7 @@
 #   qsub -v VARIANTS="staeformer_mta",GPU=1 jobs/stgnn.pbs                 # pin a GPU
 #   qsub -v VARIANTS="stgnn_mta",TAG=ho,EXTRA="--holdout-routes M102 M7" jobs/stgnn.pbs
 #   qsub -v PLAN=jobs/plans/final_a.txt jobs/stgnn.pbs                     # a list of runs, in order
+#   qsub -v PLAN=jobs/plans/brooklyn.txt,BUS_ETA_BOROUGH=brooklyn jobs/stgnn.pbs   # another borough
 # A PLAN file has one run per line: `<name> <seed> [extra trainer flags]` (# = comment). Runs
 # whose test predictions already exist are skipped, so a crashed plan can just be resubmitted.
 
@@ -44,11 +45,12 @@ fi
 mkdir -p jobs/logs
 LOG="jobs/logs/stgnn_${PBS_JOBID%%.*}.log"
 {
-  echo "node $(hostname), NCPUS=${NCPUS}, GPU ${CUDA_VISIBLE_DEVICES}"; nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
+  echo "node $(hostname), NCPUS=${NCPUS}, GPU ${CUDA_VISIBLE_DEVICES}, borough ${BUS_ETA_BOROUGH:-manhattan}"; nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv
   if [[ -n "$PLAN" ]]; then
     while read -r name seed extra; do
       [[ -z "$name" || $name == \#* ]] && continue
-      [[ -f data/processed/preds/$name.parquet || -f data/processed/preds/analysis/$name.parquet ]] && { echo "skip $name: done"; continue; }
+      P="data${BUS_ETA_BOROUGH:+/$BUS_ETA_BOROUGH}/processed/preds"   # Manhattan: data/processed
+      [[ -f $P/$name.parquet || -f $P/analysis/$name.parquet ]] && { echo "skip $name: done"; continue; }
       python -m bus_eta.models.stgnn --name "$name" --seed "$seed" --epochs "${EPOCHS:-10}" --patience 3 \
         --max-bins "${MAX_BINS:-16}" --batch-size "${BATCH:-2048}" $extra || exit 1
     done < "$PLAN"

@@ -24,9 +24,16 @@ Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<
     python -m bus_eta.models.stgnn --eval-only stgnn_mta --state-drop 0.5 --name stgnn_mta_drop50
     python -m bus_eta.models.stgnn --eval-only stgnn_mta --permute weather --name stgnn_mta_perm_weather
     python -m bus_eta.models.stgnn --eval-only stgnn_mta_q --split val --name stgnn_mta_q_val   # + y, for conformal
+
+Zero-shot transfer: a checkpoint trained on another borough, scored on this one's test
+(only inductive or no-graph models; the test pack must use the source statistics, see
+stgnn_data --stats-from):
+    BUS_ETA_BOROUGH=brooklyn python -m bus_eta.models.stgnn --eval-only stgnn_mta_v2ind_ho_abl \
+        --transfer-from data --transfer-pack nn_v2_from_manhattan --name xfer_v2ind
 """
 import argparse
 import json
+from pathlib import Path
 import math
 import time
 
@@ -467,14 +474,17 @@ class GWNetEncoder(nn.Module):
 ENCODERS = ("ours", "dcrnn", "gwnet", "tgcn", "a3tgcn", "staeformer")
 
 
-def load_node_feats(device, which="all") -> torch.Tensor:
+def load_node_feats(device, which="all", ref_graph=None) -> torch.Tensor:
     """Standardised static segment attributes (segment_attrs.py) for the inductive encoder.
     which: all | len (segment length only) | none (a constant: anonymous segments), the
-    last two being controls for how much the signal and bus-lane attributes contribute."""
-    a = pl.read_parquet(GRAPH / "node_attrs.parquet").sort("node")
-    x = a.select("seg_len_m", "n_signals", "signals_per_km", "lane_ded_frac", "lane_shared_frac").to_numpy()
-    x = np.column_stack([np.log1p(x[:, 0]), x[:, 1:]])
-    x = (x - x.mean(0)) / np.maximum(x.std(0), 1e-6)
+    last two being controls for how much the signal and bus-lane attributes contribute.
+    ref_graph: standardise with another borough's graph (the one a transferred model saw)."""
+    def raw(g):
+        a = pl.read_parquet(g / "node_attrs.parquet").sort("node")
+        x = a.select("seg_len_m", "n_signals", "signals_per_km", "lane_ded_frac", "lane_shared_frac").to_numpy()
+        return np.column_stack([np.log1p(x[:, 0]), x[:, 1:]])
+    x, ref = raw(GRAPH), raw(ref_graph or GRAPH)
+    x = (x - ref.mean(0)) / np.maximum(ref.std(0), 1e-6)
     if which == "len":
         x = x[:, :1]
     elif which == "none":
@@ -671,10 +681,20 @@ PERMUTE_GROUPS = list(ISSUE_GROUPS) + list(TOK_GROUPS) + ["route", "dow", "graph
 
 def eval_only(args) -> None:
     """Score a trained checkpoint on test after a perturbation (missing state or a permuted input),
-    or predict val (--split val, with the observed y) to calibrate intervals."""
-    src = json.loads((MODELS / f"{args.eval_only}.json").read_text())["args"]
+    predict val (--split val, with the observed y) to calibrate intervals, or score a checkpoint
+    of another borough zero-shot (--transfer-from)."""
+    xfer = Path(args.transfer_from) if args.transfer_from else None   # source borough's data root
+    models = xfer / "processed" / "models" if xfer else MODELS
+    src = json.loads((models / f"{args.eval_only}.json").read_text())["args"]
     global NN
-    NN = PROCESSED / src.get("data", "nn")
+    NN = PROCESSED / (args.transfer_pack if xfer else src.get("data", "nn"))
+    if xfer:
+        assert args.transfer_pack and args.split == "test", "--transfer-from needs --transfer-pack, test only"
+        assert src.get("inductive") or src["no_graph"], "only inductive or no-graph models transfer"
+        assert src.get("arch") != "convlstm"
+        packed_from = json.loads((NN / "stats.json").read_text()).get("stats_from", "")
+        assert Path(packed_from).resolve() == (xfer / "processed" / src.get("data", "nn") / "stats.json").resolve(), \
+            f"{NN} was packed with {packed_from!r}, not the source model's statistics"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     meta = json.loads((NN / "stats.json").read_text())
     issue_names, tok_names = meta["issue_num"], meta["tok_num"]
@@ -688,10 +708,24 @@ def eval_only(args) -> None:
     model = PetersenConvLSTM(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2]).to(device) \
         if convlstm else STETA(n_nodes, len(meta["route_map"]), test.issue_x.shape[1], test.tok_x.shape[2], supports,
                   use_graph=not src["no_graph"], encoder=src.get("encoder", "ours"),
-                  node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None,
+                  node_feats=load_node_feats(device, src.get("inductive_feats", "all"),
+                                             xfer / "interim" / "graph" if xfer else None) if src.get("inductive") else None,
                   quantiles=src.get("quantiles") or None).to(device)
-    model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
-    if src.get("holdout_routes") and args.split == "test":
+    sd = torch.load(models / f"{args.eval_only}.pt", map_location=device)
+    if xfer:
+        # Segment-sized tensors belong to the source graph: keep this borough's attributes, and
+        # every segment gets the source's "unknown segment" embedding (its last row).
+        unknown = sd.pop("node_static.weight")[-1]
+        sd.pop("graph.node_feats", None)
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+        assert not unexpected and set(missing) <= {"node_static.weight", "graph.node_feats"}, (missing, unexpected)
+        with torch.no_grad():
+            model.node_static.weight.copy_(unknown.expand_as(model.node_static.weight))
+        test.static_node.fill_(-1)
+        assert (test.route == 0).all(), "transfer pack must map every route to unknown"
+    else:
+        model.load_state_dict(sd)
+    if src.get("holdout_routes") and args.split == "test" and not xfer:
         cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
         test.treat_as_unseen([meta["route_map"][r] for r in src["holdout_routes"]], np.array(cfg["seen_nodes"]))
     if args.state_drop > 0:
@@ -747,6 +781,8 @@ def main() -> None:
     p.add_argument("--state-drop", type=float, default=0.0, help="eval-only: share of network observations hidden")
     p.add_argument("--permute", choices=PERMUTE_GROUPS, help="eval-only: input group shuffled across issues")
     p.add_argument("--split", choices=["test", "val"], default="test", help="eval-only: split to predict")
+    p.add_argument("--transfer-from", help="eval-only: data root of the borough the checkpoint was trained on")
+    p.add_argument("--transfer-pack", help="eval-only transfer: pack of this borough made with the source stats")
     args = p.parse_args()
     assert not args.quantiles or 0.5 in args.quantiles, "--quantiles must include 0.5"
     args.quantiles = sorted(args.quantiles)

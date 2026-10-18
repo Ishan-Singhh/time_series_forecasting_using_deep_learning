@@ -21,9 +21,17 @@ v2 adds the issue feature is_school_day and per-token physical attributes of the
 crossed to reach stop k+h (segment_attrs.py): length, signals, bus-lane share and the
 share of bus lane in force at the issue hour. Version 1 packs stay untouched so trained
 checkpoints keep working.
+
+Zero-shot transfer to another borough: pack only its test split with the source borough's
+statistics and route list (every route becomes 0 = unknown), so a source checkpoint sees
+inputs on the scale it was trained on:
+
+    BUS_ETA_BOROUGH=brooklyn python -m bus_eta.models.stgnn_data --v2 \
+        --stats-from data/processed/nn_v2/stats.json --out nn_v2_from_manhattan
 """
 import argparse
 import json
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -144,11 +152,20 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default="nn", help="output folder under data/processed")
     p.add_argument("--v2", action="store_true", help="add school day + segment attributes")
+    p.add_argument("--stats-from", help="stats.json of another pack: pack only test, with its "
+                                        "statistics and route list (zero-shot transfer)")
     args = p.parse_args()
     global OUT
     OUT = PROCESSED / args.out
     OUT.mkdir(parents=True, exist_ok=True)
     meta = json.loads(STATE_META.read_text())
+
+    if args.stats_from:
+        src = json.loads(Path(args.stats_from).read_text())
+        assert src["tok_num"] == TOK_NUM + ["has_mta"] + (TOK_ATTRS if args.v2 else []), "pack version differs from --v2"
+        (OUT / "stats.json").write_text(json.dumps(src | {"stats_from": args.stats_from}))
+        pack("test", load_wide("test", EVAL_FRAC, 0), src["stats"], src["route_map"], meta["first_bin"], meta["bin_s"], args.v2)
+        return
 
     train = load_wide("train", args.train_frac, args.seed)
     stats = {}
