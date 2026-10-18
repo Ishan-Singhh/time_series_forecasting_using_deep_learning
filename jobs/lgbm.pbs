@@ -15,7 +15,7 @@ LOG="jobs/logs/lgbm_${PBS_JOBID%%.*}.log"
 F="--train-frac ${TRAIN_FRAC:-0.2} --seed ${SEED:-0}"   # 0.2 = same issues as the neural models
 S=""; [[ ${SEED:-0} != 0 ]] && S="_s${SEED}"
 {
-  echo "node $(hostname), NCPUS=${NCPUS}"
+  echo "node $(hostname), NCPUS=${NCPUS}, borough ${BUS_ETA_BOROUGH:-manhattan}"
   [[ -z "$S" ]] && { python -m bus_eta.models.baselines || exit 1; }
   python -m bus_eta.models.lgbm --name lgbm_no_mta$S $F &&
   python -m bus_eta.models.lgbm --name lgbm_mta$S --use-mta $F &&

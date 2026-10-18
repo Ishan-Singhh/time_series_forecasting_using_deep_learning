@@ -13,6 +13,6 @@ source /apps/anaconda3/bin/activate bus_eta
 export PYTHONUNBUFFERED=1
 mkdir -p jobs/logs
 LOG="jobs/logs/${MOD}_${PBS_JOBID%%.*}.log"
-echo "node $(hostname), NCPUS=${NCPUS}" > "$LOG"
+echo "node $(hostname), NCPUS=${NCPUS}, borough ${BUS_ETA_BOROUGH:-manhattan}" > "$LOG"
 python -m "bus_eta.${MOD}" ${ARGS} >> "$LOG" 2>&1
 echo "exit code $? -- log: $LOG"
