@@ -773,7 +773,7 @@ data, all 26.3M test rows, 3 seeds each).
 | 80% | all | 78.7 | 79.3 | 288 | 293 | 447.7 → 447.4 |
 | 50% | all | 48.7 | 49.4 | 148 | 151 | 311.7 → 311.7 |
 
-  - Recalibration closes about 60% of the coverage gap for 1.8% wider intervals (+7 s at
+  - Recalibration closes about half the coverage gap for 1.8% wider intervals (+7 s at
     90%), and the gap no longer grows as much with horizon (h16–20: 88.3 → 89.1%). It
     narrows h1, which was over-covered. The interval score improves only slightly.
   - **The raw intervals are already close to calibrated.** On validation they cover
@@ -785,8 +785,8 @@ data, all 26.3M test rows, 3 seeds each).
     conformal (e.g. ACI, Gibbs & Candès 2021) would track it; future work.
   - qsdrop: the same picture (90%: 88.9 → 89.4%, width 378 → 384 s).
   - Paper: report the raw intervals as the main result (near-nominal without any
-    post-processing) and CQR as a one-line, cheap fix that brings every band within
-    1 pt of nominal.
+    post-processing) and CQR as a cheap fix that brings every band within 0.9 pt of nominal
+    for the 90% interval (1.2 pt for the 80% interval at h16–20).
 - **Adaptive intervals (old build, not rerun):** split into fifths by 80% interval width,
   the mean absolute error was 33 / 61 / 87 / 116 / 184 s with coverage 80.3–78.7% in every
   fifth; Spearman(width, |error|) = 0.51. The model knows which ETAs are unreliable.
