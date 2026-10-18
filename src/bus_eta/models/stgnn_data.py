@@ -114,17 +114,19 @@ def pack(split: str, wide: pl.DataFrame, stats: dict, route_map: dict, first_bin
     wide = wide.with_columns(((pl.col("t_issue") // bin_s).cast(pl.Int64) - first_bin).alias("bin")).sort("bin")
     nodes = downstream_nodes(wide)
 
+    def std(names):  # std 0 = constant on train: no information, so the input is zeroed (x / inf)
+        return np.array([stats[n][1] or np.inf for n in names], dtype=np.float32)
+
     def mat(cols, names):  # standardised, NaN kept for masks
         x = wide.select([pl.col(c).cast(pl.Float32) for c in cols]).to_numpy()
-        return (x - np.array([stats[n][0] for n in names], dtype=np.float32)) / np.array(
-            [stats[n][1] for n in names], dtype=np.float32)
+        return (x - np.array([stats[n][0] for n in names], dtype=np.float32)) / std(names)
 
     issue_names = ISSUE_NUM + (ISSUE_V2 if v2 else [])
     issue_x = np.nan_to_num(mat(issue_names, issue_names))
     tok = np.stack([mat([f"{v}_h{h}" for h in range(1, H + 1)], [v] * H) for v in TOK_NUM], axis=-1)
     if v2:
         ta = token_attrs(wide, nodes)
-        extra = np.stack([(ta[v] - stats[v][0]) / stats[v][1] for v in TOK_ATTRS], axis=-1).astype(np.float32)
+        extra = np.stack([(ta[v] - stats[v][0]) / std([v])[0] for v in TOK_ATTRS], axis=-1).astype(np.float32)
         tok = np.concatenate([tok, extra], axis=-1)
     has_mta = (~np.isnan(tok[..., TOK_NUM.index("mta")]))[..., None].astype(np.float32)
     tok_valid = ~np.isnan(tok[..., TOK_NUM.index("dist")])  # stop k+h exists on this trip
@@ -171,15 +173,15 @@ def main() -> None:
     stats = {}
     for c in ISSUE_NUM + (ISSUE_V2 if args.v2 else []):
         s = train[c].cast(pl.Float64)
-        stats[c] = (float(s.mean() or 0.0), float(s.std() or 1.0) or 1.0)
+        stats[c] = (float(s.mean() or 0.0), float(s.std() or 0.0))
     for v in TOK_NUM:
         s = pl.concat([train[f"{v}_h{h}"].cast(pl.Float64) for h in range(1, H + 1)])
-        stats[v] = (float(s.mean() or 0.0), float(s.std() or 1.0) or 1.0)
+        stats[v] = (float(s.mean() or 0.0), float(s.std() or 0.0))
     if args.v2:
         ta = token_attrs(train, downstream_nodes(train))
         for v in TOK_ATTRS:
             x = ta[v][np.isfinite(ta[v])].astype(np.float64)
-            stats[v] = (float(x.mean()), float(x.std()) or 1.0)
+            stats[v] = (float(x.mean()), float(x.std()))
     route_map = {r: i + 1 for i, r in enumerate(train["route_id"].unique().sort().to_list())}
     (OUT / "stats.json").write_text(json.dumps({"stats": stats, "route_map": route_map,
                                                 "issue_num": ISSUE_NUM + (ISSUE_V2 if args.v2 else []),
