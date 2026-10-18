@@ -35,6 +35,7 @@ import argparse
 import json
 from pathlib import Path
 import math
+import resource
 import time
 
 import numpy as np
@@ -853,7 +854,9 @@ def main() -> None:
             run += loss.item() * n.item()
             cnt += n.item()
         val_mae = evaluate_split(model, val, state, device, 4 * args.batch_size)
-        print(f"epoch {epoch:2d} train {'pinball' if args.quantiles else 'MAE'} {run / cnt:6.2f}s  val MAE {val_mae:6.2f}s  ({time.time() - t0:.0f}s)",
+        gpu = f", GPU peak {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB" if device.type == "cuda" else ""
+        print(f"epoch {epoch:2d} train {'pinball' if args.quantiles else 'MAE'} {run / cnt:6.2f}s  val MAE {val_mae:6.2f}s  "
+              f"({time.time() - t0:.0f}s{gpu}, host peak {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 2**20:.1f} GiB)",
               flush=True)
         if val_mae < best - 0.01:
             best, bad = val_mae, 0
