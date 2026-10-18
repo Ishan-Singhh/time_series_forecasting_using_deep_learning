@@ -1,0 +1,13 @@
+# Zero-shot transfer: Manhattan cold-start checkpoints scored on Brooklyn's test month, with no
+# Brooklyn training (every route and segment unknown; inputs scaled with Manhattan's statistics).
+#   qsub -v PLAN=jobs/plans/brooklyn_xfer.txt,BUS_ETA_BOROUGH=brooklyn jobs/stgnn.pbs
+# Predictions go to data/brooklyn/processed/preds/analysis/<name>.parquet.
+xfer_stgnn_mta_v2indqsd_ho_abl 0 --eval-only stgnn_mta_v2indqsd_ho_abl --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_stgnn_mta_v2indqsd_ho_abl_s1 1 --eval-only stgnn_mta_v2indqsd_ho_abl_s1 --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_stgnn_mta_v2indqsd_ho_abl_s2 2 --eval-only stgnn_mta_v2indqsd_ho_abl_s2 --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_stgnn_mta_v2ind_ho_abl 0 --eval-only stgnn_mta_v2ind_ho_abl --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_stgnn_mta_v2ind_ho_abl_s1 1 --eval-only stgnn_mta_v2ind_ho_abl_s1 --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_stgnn_mta_v2ind_ho_abl_s2 2 --eval-only stgnn_mta_v2ind_ho_abl_s2 --transfer-from data --transfer-pack nn_v2_from_manhattan
+xfer_seq_mta_ho_abl 0 --eval-only seq_mta_ho_abl --transfer-from data --transfer-pack nn_from_manhattan
+xfer_seq_mta_ho_abl_s1 1 --eval-only seq_mta_ho_abl_s1 --transfer-from data --transfer-pack nn_from_manhattan
+xfer_seq_mta_ho_abl_s2 2 --eval-only seq_mta_ho_abl_s2 --transfer-from data --transfer-pack nn_from_manhattan
