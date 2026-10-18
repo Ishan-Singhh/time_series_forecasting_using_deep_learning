@@ -15,6 +15,7 @@ BOROUGHS = {
         "bbox": (40.68, -74.03, 40.89, -73.90),  # (S, W, N, E) with margin
         "dot_boros": ["MAN"],                    # NYC DOT bus-lane dataset codes
         "weather_point": (40.7829, -73.9654),    # Central Park
+        "proj_origin": (40.78, -73.97),          # local flat projection (geo.to_xy)
         "events_csv": "major_manhattan_events.csv",
     },
     "brooklyn": {
@@ -27,6 +28,7 @@ BOROUGHS = {
         "bbox": (40.55, -74.06, 40.76, -73.76),  # Brooklyn plus the B routes into Queens / JFK
         "dot_boros": ["BK", "QNS"],
         "weather_point": (40.6602, -73.9690),    # Prospect Park
+        "proj_origin": (40.65, -73.95),
         "events_csv": "major_brooklyn_events.csv",  # only the West Indian Day Parade (Labor Day)
         # archived static versions on parquet.gtfsrt.io (pick -> feed digest), see fetch_static
         "schedule_b64": "aHR0cDovL3dlYi5tdGEuaW5mby9kZXZlbG9wZXJzL2RhdGEvbnljdC9idXMvZ29vZ2xlX3RyYW5zaXRfYnJvb2tseW4uemlw",

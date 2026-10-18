@@ -1,15 +1,16 @@
 """Planar projection and along-shape distance kernels.
 
-All geometry is done in a local equirectangular projection (meters) centred on Manhattan,
-which is accurate to well under 0.1% at city scale.
+All geometry is done in a local equirectangular projection (meters) centred on the borough
+(config proj_origin), which is accurate to well under 0.1% at borough scale.
 """
 import math
 
 import numpy as np
 from numba import njit
 
-LAT0 = 40.78
-LON0 = -73.97
+from bus_eta.config import B
+
+LAT0, LON0 = B["proj_origin"]  # per borough, so the east-west scale is right where the buses run
 M_PER_DEG_LAT = 110_540.0
 M_PER_DEG_LON = 111_320.0 * math.cos(math.radians(LAT0))
 
@@ -71,6 +72,9 @@ def project_stops(sx, sy, xs, ys, cum):
         d, lat = _nearest_on_segments(sx[k], sy[k], xs, ys, cum, prev, hi)
         if lat == np.inf:
             d = prev
+        # the nearest point can fall inside a shape segment that starts before prev (a stop
+        # well off the street; Brooklyn B48 stop 306958, 72 m off): keep the order
+        d = max(d, prev)
         out[k] = d
         lat_out[k] = lat
         prev = d
