@@ -23,6 +23,7 @@ the validation month only.
 Test-time analyses of a trained checkpoint (no training; writes preds/analysis/<name>.parquet):
     python -m bus_eta.models.stgnn --eval-only stgnn_mta --state-drop 0.5 --name stgnn_mta_drop50
     python -m bus_eta.models.stgnn --eval-only stgnn_mta --permute weather --name stgnn_mta_perm_weather
+    python -m bus_eta.models.stgnn --eval-only stgnn_mta_q --split val --name stgnn_mta_q_val   # + y, for conformal
 """
 import argparse
 import json
@@ -635,7 +636,7 @@ def evaluate_split(model, split, state, device, batch_size):
 
 
 @torch.no_grad()
-def predict(model, split, state, device, batch_size) -> pl.DataFrame:
+def predict(model, split, state, device, batch_size, with_y: bool = False) -> pl.DataFrame:
     model.eval()
     parts = []
     for idx in split.batches(batch_size, False, np.random.default_rng(0)):
@@ -650,6 +651,8 @@ def predict(model, split, state, device, batch_size) -> pl.DataFrame:
         if model.quantiles:                                           # q10, q50, q90, ... columns
             qs = (b["rt"][..., None] + out).cpu().numpy()
             cols |= {f"q{round(100 * q)}": qs[r, h, i] for i, q in enumerate(model.quantiles)}
+        if with_y:                                                    # val has no _truth file
+            cols["y"] = b["y"].cpu().numpy()[r, h]
         parts.append(pl.DataFrame(cols))
     return pl.concat(parts)
 
@@ -667,14 +670,17 @@ PERMUTE_GROUPS = list(ISSUE_GROUPS) + list(TOK_GROUPS) + ["route", "dow", "graph
 
 
 def eval_only(args) -> None:
-    """Score a trained checkpoint on test after a perturbation (missing state or a permuted input)."""
+    """Score a trained checkpoint on test after a perturbation (missing state or a permuted input),
+    or predict val (--split val, with the observed y) to calibrate intervals."""
     src = json.loads((MODELS / f"{args.eval_only}.json").read_text())["args"]
     global NN
     NN = PROCESSED / src.get("data", "nn")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     meta = json.loads((NN / "stats.json").read_text())
     issue_names, tok_names = meta["issue_num"], meta["tok_num"]
-    test = Split("test", src["no_mta"], tok_names, src.get("no_attrs", False))
+    test = Split(args.split, src["no_mta"], tok_names, src.get("no_attrs", False))
+    if args.split == "val" and src.get("holdout_routes"):
+        test.drop_routes([meta["route_map"][r] for r in src["holdout_routes"]])   # as in training
     convlstm = src.get("arch") == "convlstm"
     state = None if src["no_graph"] and not convlstm else NetworkState(device)
     supports = [] if src["no_graph"] or convlstm else load_supports(device)
@@ -685,7 +691,7 @@ def eval_only(args) -> None:
                   node_feats=load_node_feats(device, src.get("inductive_feats", "all")) if src.get("inductive") else None,
                   quantiles=src.get("quantiles") or None).to(device)
     model.load_state_dict(torch.load(MODELS / f"{args.eval_only}.pt", map_location=device))
-    if src.get("holdout_routes"):
+    if src.get("holdout_routes") and args.split == "test":
         cfg = json.loads((MODELS / f"{args.eval_only}.json").read_text())
         test.treat_as_unseen([meta["route_map"][r] for r in src["holdout_routes"]], np.array(cfg["seen_nodes"]))
     if args.state_drop > 0:
@@ -704,11 +710,11 @@ def eval_only(args) -> None:
             state.permute_bins(test.bin.numpy(), args.seed)
     bs = args.batch_size if args.batch_size > 0 else auto_batch_size(device)
     mae = evaluate_split(model, test, state, device, 4 * bs)
-    print(f"{args.name}: test MAE {mae:.2f}s (from {args.eval_only}, state_drop={args.state_drop}, "
+    print(f"{args.name}: {args.split} MAE {mae:.2f}s (from {args.eval_only}, state_drop={args.state_drop}, "
           f"permute={args.permute})", flush=True)
     out = PREDS / "analysis"              # kept out of the main table; evaluate with --models analysis/<name>
     out.mkdir(parents=True, exist_ok=True)
-    predict(model, test, state, device, 4 * bs).write_parquet(out / f"{args.name}.parquet")
+    predict(model, test, state, device, 4 * bs, with_y=args.split == "val").write_parquet(out / f"{args.name}.parquet")
 
 
 def main() -> None:
@@ -740,6 +746,7 @@ def main() -> None:
     p.add_argument("--eval-only", metavar="MODEL", help="score this trained checkpoint on test instead of training")
     p.add_argument("--state-drop", type=float, default=0.0, help="eval-only: share of network observations hidden")
     p.add_argument("--permute", choices=PERMUTE_GROUPS, help="eval-only: input group shuffled across issues")
+    p.add_argument("--split", choices=["test", "val"], default="test", help="eval-only: split to predict")
     args = p.parse_args()
     assert not args.quantiles or 0.5 in args.quantiles, "--quantiles must include 0.5"
     args.quantiles = sorted(args.quantiles)

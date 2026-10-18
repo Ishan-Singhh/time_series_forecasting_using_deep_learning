@@ -918,7 +918,9 @@ Issues found (none changes a conclusion; no rerun):
 - [x] Training with random state dropout (robustness fix, §5.1).
 - [x] Error analysis: rush vs off-peak, rain, route, SBS vs local, school start, service alerts (§5.6).
 - [x] Uncertainty (quantile) outputs and calibration (§5.7).
-- [ ] Optional: conformal recalibration of the quantiles on validation.
+- [ ] Conformal recalibration of the quantiles on validation (running 2026-10-18): split CQR per
+  horizon, `bus_eta.conformal`; validation predictions from `stgnn --eval-only <m> --split val`
+  for q and qsdrop, 3 seeds each (job 27486, after 27485).
 - [x] Petersen ConvLSTM baseline (finding 10), incl. the 20-epoch check (use e20 in the paper).
 - [x] Final protocol (started and scored 2026-10-15; batch size 2048, as in seed 0); all
   runs done, `dcrnn_mta` s2 (27335) last, at 11:35:
@@ -975,12 +977,32 @@ Issues found (none changes a conclusion; no rerun):
 - [x] GWNet in the cold-start set (job 27480, `jobs/plans/coldstart_gwnet.txt`, with
   `stgnn_mta_ho_abl` seeds 1–2; done 2026-10-18): it fails like our transductive encoder,
   109.3 s, worse than no graph (§5.4).
-- [ ] Optional: GWNet trained with observation dropout; GWNet with a quantile head.
+- [ ] GWNet with the quantile head, 3 seeds (running 2026-10-18, job 27485,
+  `jobs/plans/gwnet_q.txt`): does the quantile loss explain q's lead over GWNet?
+- [ ] Optional: GWNet trained with observation dropout.
 - [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
   static feed versions (Brooklyn: Feb 26, Mar 28, Apr 9, Jun 24, Sep 3), with 92–95% RT
   trip-id coverage in each period.
+  Brooklyn vs Queens (2026-10-18; RT of Wed Sep 16 and Wed Mar 18, current static feeds;
+  `data/raw/boro_compare/boro*.py`). Local + SBS routes, express excluded:
+
+  | | Manhattan | Brooklyn | Queens |
+  |---|---|---|---|
+  | routes in RT | 42 | 57 | 92 |
+  | pings per weekday | 0.79M | 1.22M (1.5×) | 1.57M (2.0×) |
+  | trips / vehicles per weekday | 8.7k / 671 | 12.1k / 1,166 | 18.3k / 1,558 |
+  | static feeds (share of pings) | `gtfs_m` | `gtfs_b` 55 routes (95%), `gtfs_busco` 2 (B100, B103) | `gtfs_busco` 46 (50%), `gtfs_q` 37 (40%), `gtfs_b` 9 (10%) |
+  | median stops per trip | 21 | 41 | 24 |
+  | route set Mar → Sep | | stable (B98 dropped) | stable |
+
+  Neither borough changed its network in the window: the Queens redesign took effect in
+  2025 (Jun 29 and Aug 31), and Brooklyn's is still at the plan stage. The pipeline reads
+  one static feed. Brooklyn's NYCT routes (`gtfs_b`, 95% of its pings) therefore need only a new route prefix and feed URL;
+  Queens needs three feeds merged. Stops shared between boroughs: Brooklyn–Queens 80,
+  Queens–Manhattan 24, Brooklyn–Manhattan 2. Median ping interval is 30 s everywhere. RT route
+  ids are upper case, so the Bronx (`BX…`) must be excluded explicitly when filtering by `B`.
 
 ## 9. Reproduction pointers
 - Pipeline: `fetch_rt` → `fetch_static` → `static_gtfs` → `arrivals` → `samples` →
