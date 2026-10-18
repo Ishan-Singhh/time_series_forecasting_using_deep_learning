@@ -1,0 +1,24 @@
+#PBS -N bus_eta_bk_post
+#PBS -l select=1:ncpus=48:mem=240gb,walltime=08:00:00
+#PBS -q workq
+#PBS -j oe
+#
+# Brooklyn, after `qsub -v BUS_ETA_BOROUGH=brooklyn jobs/rebuild.pbs`: transfer packs (test
+# with Manhattan's statistics) and the data checks month by month. Submit from the repo root:
+#   qsub -W depend=afterok:<rebuild job> jobs/brooklyn_post.pbs
+
+cd "${PBS_O_WORKDIR}"
+source /apps/anaconda3/bin/activate bus_eta
+export PYTHONUNBUFFERED=1 BUS_ETA_BOROUGH=brooklyn
+mkdir -p jobs/logs
+LOG="jobs/logs/brooklyn_post_${PBS_JOBID%%.*}.log"
+{
+  python -m bus_eta.models.stgnn_data --stats-from data/processed/nn/stats.json --out nn_from_manhattan || exit 1
+  python -m bus_eta.models.stgnn_data --v2 --stats-from data/processed/nn_v2/stats.json --out nn_v2_from_manhattan || exit 1
+  for m in "03-01 03-31" "04-01 04-30" "05-01 05-31" "06-01 06-30" "07-01 07-31" "08-01 08-31" "09-01 09-30" "10-01 10-11"; do
+    set -- $m; echo "== data_check 2026-$1 .. 2026-$2"
+    python -m bus_eta.data_check --start 2026-$1 --end 2026-$2 | grep -E "issues/day|targets/issue|labelled|pings in static|CHECKS"
+  done
+  echo BK_POST_DONE
+} > "$LOG" 2>&1
+echo "log: $LOG"

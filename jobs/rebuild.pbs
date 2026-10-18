@@ -7,6 +7,7 @@
 # state -> neural packs (nn, nn_v2). Static tables, the graph, segment attributes and the
 # context tables don't depend on these and are reused. Submit from the repo root:
 #   qsub jobs/rebuild.pbs
+#   qsub -v BUS_ETA_BOROUGH=brooklyn jobs/rebuild.pbs        # another borough
 #   qsub -v STEPS="network_state packs" jobs/rebuild.pbs     # resume from a step
 
 cd "${PBS_O_WORKDIR}"
@@ -17,7 +18,7 @@ LOG="jobs/logs/rebuild_${PBS_JOBID%%.*}.log"
 R="--start 2026-03-01 --end 2026-10-11"
 step() { echo "== $* ($(date))"; local t=$SECONDS; python -m "$@" || exit 1; echo "   $((SECONDS - t)) s"; }
 {
-  echo "node $(hostname), NCPUS=${NCPUS}"
+  echo "node $(hostname), NCPUS=${NCPUS}, borough ${BUS_ETA_BOROUGH:-manhattan}"
   for s in ${STEPS:-arrivals samples network_state packs}; do
     case $s in
       arrivals)      step bus_eta.arrivals $R --force ;;
