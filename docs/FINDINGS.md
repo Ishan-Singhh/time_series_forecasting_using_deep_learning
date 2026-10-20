@@ -1017,6 +1017,45 @@ All Δ have p ≤ 3e-12. Seed 0 of each on the common support: 95.45, 95.75 and 
   - The interval score barely changes (488.7 vs 489.2 s).
 - **qsdrop is identical** (90%: 89.0 → 89.5%).
 
+#### Results: missing network data and permutation importance (jobs 27518–27521; as §5.1–5.2)
+Seed 0, MAE over all test rows (3.7M issues). For reference, the no-graph model is about
+88.6 s.
+
+| Hidden | 0% | 25% | 50% | 75% | 90% | Δ at 90% | Manhattan Δ at 90% |
+|---|---|---|---|---|---|---|---|
+| stgnn_mta (L1, no dropout) | 86.42 | 87.09 | 88.57 | 91.16 | 94.51 | +8.1 | +9.1 |
+| stgnn_mta_q (no dropout) | 86.38 | 87.25 | 88.95 | 91.25 | 94.14 | +7.8 | +8.4 |
+| gwnet_mta (no dropout) | 86.45 | 86.92 | 87.97 | 88.99 | 89.99 | +3.5 | +5.9 |
+| **stgnn_mta_qsdrop** (obs. dropout in training) | 86.44 | **86.54** | **86.68** | **86.88** | **87.38** | **+0.9** | +1.4 |
+
+- **The robustness result replicates, and it is stronger.**
+  - Without dropout, our encoder drops to the no-graph level at about 50% hidden and
+    below it after that.
+  - With dropout, degradation at 90% hidden is +0.9 s. That is still 1.2 s *better* than
+    no graph (87.4 vs 88.6) with only 10% of observations; in Manhattan it was level.
+  - It is the best model at every coverage below 100%. At full coverage it costs only
+    0.06 s vs q (seed 0).
+- GWNet again degrades more gracefully than our encoder without dropout (+3.5 vs +7.8 s).
+  With dropout, ours is 2.6 s better than GWNet at 90% hidden.
+- **Permutation importance** (stgnn_mta, base 86.42 s; Δ in s, Manhattan in brackets):
+
+  | Input shuffled | Δ (s) |
+  |---|---|
+  | real-time segment estimate | +207.7 (+228) |
+  | schedule / distances | +81.0 (+92) |
+  | network state (graph) | +37.5 (+34.9) |
+  | bus state | +6.8 (+7.3) |
+  | MTA prediction | +5.9 (+6.6) |
+  | time of day | +5.4 (+8.1) |
+  | route | +1.0 (+1.3) |
+  | day of week | +0.8 (+1.2) |
+  | weather + calendar | **+0.06** (+0.1) |
+
+  - **The same order as Manhattan:** the graph is the third most important input, and
+    weather adds nothing on both networks.
+  - Shuffling the network state costs q +37.3, qsdrop +26.5 and GWNet +19.0. qsdrop leans
+    less on the graph, as in Manhattan.
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
@@ -1187,7 +1226,7 @@ Issues found (none changes a conclusion; no rerun):
   worse than GWNet with L1; the main model beats it by 0.34 s (§4 finding 4).
 - [ ] Optional: GWNet trained with observation dropout.
 - [x] Second borough: Brooklyn (2026-10-18 → 20, branch `brooklyn`). Replication and zero-shot
-  transfer are done (§5.10). Still to come: robustness, permutation and conformal on Brooklyn.
+  transfer, conformal, robustness and permutation importance are all done (§5.10).
   Background (2026-10-16, Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
