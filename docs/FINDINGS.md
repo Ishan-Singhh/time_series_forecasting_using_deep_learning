@@ -1003,6 +1003,20 @@ All Δ have p ≤ 3e-12. Seed 0 of each on the common support: 95.45, 95.75 and 
 - **Paper point:** a model trained in one borough is a usable day-one predictor for
   another, better than the operator's. The graph's benefit needs local training.
 
+#### Results: intervals and conformal recalibration (job 27525; as §5.7)
+3 seeds, calibrated per horizon on August and scored on test:
+
+| Main model (q) | 50% | 80% | 90% | 90% at h16–20 | 90% width (all / h16–20) |
+|---|---|---|---|---|---|
+| raw coverage | 48.9 | 78.7 | 89.0 | 88.6 | 341 / 531 s |
+| conformal | 49.4 | 79.4 | 89.5 | 89.2 | 346 / 540 s |
+
+- **The same picture as Manhattan.** The raw quantiles are already close to nominal
+  (1.0–1.4 points under), and conformal brings them within 0.5–0.8 points.
+  - Widths are 10% narrower than Manhattan's, matching the lower MAE.
+  - The interval score barely changes (488.7 vs 489.2 s).
+- **qsdrop is identical** (90%: 89.0 → 89.5%).
+
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
 | Paper | Key point | How we use it |
