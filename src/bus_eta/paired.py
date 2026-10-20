@@ -4,9 +4,11 @@ Main model: stgnn_mta_q (quantile head). stgnn_mta_qsdrop (+ observation dropout
 robust variant, and the inductive encoder (v2ind) the cold-start variant.
 
 The final-protocol comparisons of docs/FINDINGS.md §4 and §5.4: `python -m bus_eta.paired`.
+Brooklyn (§5.10: replication and zero-shot transfer): `BUS_ETA_BOROUGH=brooklyn python -m bus_eta.paired`.
 """
 import numpy as np, polars as pl
 from scipy.stats import wilcoxon
+from bus_eta.config import BOROUGH
 from bus_eta.evaluate import load_common
 HO = ["M102", "M7", "M14D+", "M5", "M15+", "M42"]
 def seeds(m, n=3): return [m] + [f"{m}_s{k}" for k in range(1, n)]
@@ -20,6 +22,28 @@ def run(label, a, b, routes=None):
     print(f"{label}: {da.mean():.2f} vs {db.mean():.2f} d={diff.mean():+.2f} better {np.mean(diff<0):.0%} of {len(diff)}d "
           f"p={wilcoxon(diff).pvalue:.1g}", flush=True)
 M = seeds("stgnn_mta_q")
+A = lambda m, n=3: [f"analysis/{x}" for x in seeds(m, n)]
+if BOROUGH == "brooklyn":
+    R = seeds("stgnn_mta_qsdrop")
+    for label, b in [("original", seeds("stgnn_mta")), ("qsdrop", R), ("gwnet", seeds("gwnet_mta")),
+                     ("seq", seeds("seq_mta")), ("lgbm", ["lgbm_mta"]), ("hist_avg", ["hist_avg"]), ("mta", ["mta"])]:
+        run(f"q vs {label}", M, b)
+    run("qsdrop vs gwnet", R, seeds("gwnet_mta"))
+    run("qsdrop vs seq", R, seeds("seq_mta"))
+    run("stgnn_mta vs gwnet", seeds("stgnn_mta"), seeds("gwnet_mta"))
+    run("gwnet vs seq", seeds("gwnet_mta"), seeds("seq_mta"))
+    run("stgnn_mta vs seq_mta", seeds("stgnn_mta"), seeds("seq_mta"))
+    run("lgbm_mta vs lgbm_no_mta", ["lgbm_mta"], ["lgbm_no_mta"])
+    run("randsplit lgbm vs q", ["analysis/lgbm_mta_randsplit"], M)
+    # zero-shot: Manhattan cold-start checkpoints, no Brooklyn training
+    XI, XQ, XS = A("xfer_stgnn_mta_v2ind_ho_abl"), A("xfer_stgnn_mta_v2indqsd_ho_abl"), A("xfer_seq_mta_ho_abl")
+    run("xfer: ind vs seq", XI, XS)
+    run("xfer: ind vs indqsd", XI, XQ)
+    for label, b in [("mta", ["mta"]), ("mta_cal", ["mta_cal"]), ("hist_avg", ["hist_avg"]), ("lgbm (trained here)", ["lgbm_mta"]),
+                     ("q (trained here)", M)]:
+        run(f"xfer: seq vs {label}", XS, b)
+        run(f"xfer: ind vs {label}", XI, b)
+    raise SystemExit
 run("q vs original", M, seeds("stgnn_mta"))
 run("q vs qsdrop", M, seeds("stgnn_mta_qsdrop"))
 run("q vs gwnet", M, seeds("gwnet_mta"))
@@ -56,7 +80,6 @@ run("lgbm_mta vs lgbm_no_mta", ["lgbm_mta"], ["lgbm_no_mta"])
 run("staeformer vs seq", seeds("staeformer_mta"), seeds("seq_mta"))
 run("staeformer vs lgbm", seeds("staeformer_mta"), ["lgbm_mta"])
 run("randsplit lgbm vs q", ["analysis/lgbm_mta_randsplit"], M)
-A = lambda m, n=3: [f"analysis/{x}" for x in seeds(m, n)]
 I = A("stgnn_mta_v2ind_ho_abl")
 run("cold: ind vs indqsd", I, A("stgnn_mta_v2indqsd_ho_abl"), HO)
 run("cold: ind vs seq_ho_abl", I, A("seq_mta_ho_abl"), HO)
