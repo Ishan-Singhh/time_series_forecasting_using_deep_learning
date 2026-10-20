@@ -855,7 +855,7 @@ rebuilt data (`--recompute`, 2026-10-17) and checked visually. "Ours" is the mai
   which the `dow <= 5` filter counts as a weekday; excluding holidays would pick another
   trip.
 
-### 5.10 Second borough: Brooklyn (in progress, branch `brooklyn`)
+### 5.10 Second borough: Brooklyn (branch `brooklyn`)
 Started 2026-10-18 (user). Why Brooklyn and not Queens: §8. Goal: replicate the main claims
 on a second network, and test the inductive encoder zero-shot (trained on Manhattan,
 scored on Brooklyn).
@@ -904,6 +904,104 @@ scored on Brooklyn).
   checkpoints (`v2ind_ho_abl`, `v2indqsd_ho_abl`, `seq_mta_ho_abl`, 3 seeds each), scored
   on Brooklyn test packed with Manhattan's statistics (`stgnn_data --stats-from`,
   `stgnn --transfer-from`).
+- **Full data, Mar 1–Oct 11:** 10.8M train issues and 159M targets (1.9× Manhattan). Test
+  covers 41 days, 3.7M issues; scored on the common support of 53.8M rows. Brooklyn has no
+  listed major event before the test month, so `n_major_events` is constant on train.
+  `stgnn_data` now zeroes any feature that is constant on train (Manhattan has none, so its
+  packs are unchanged).
+- **Cost:** one run is about 1–5.5 h (5.5–33 min per epoch, depending on the other user's
+  load on GPU 0). Peak memory is 10.7 GiB on the GPU and 32 GiB on the host.
+
+#### Results: replication (2026-10-20; jobs 27507–27511, 27516, 27522, 27523)
+MAE in s, mean of 3 seeds (± sd across seeds), common support of 53.8M rows. Skill is vs
+calibrated MTA, as in §4.
+
+| Model | Seeds | MAE | h1 | h2–5 | h6–10 | h11–15 | h16–20 | Skill vs mta_cal | Manhattan MAE |
+|---|---|---|---|---|---|---|---|---|---|
+| **stgnn_mta_q (main model)** | 3 | **86.46 ± 0.03** | 23.96 | 47.64 | 80.55 | 110.18 | **136.08** | **+16.3%** | 96.61 |
+| stgnn_mta (L1) | 3 | 86.47 ± 0.06 | 23.94 | 47.64 | 80.55 | 110.19 | 136.14 | +16.3% | 96.66 |
+| gwnet_mta | 3 | 86.51 ± 0.02 | 24.04 | 47.76 | 80.58 | 110.17 | 136.13 | +16.3% | 96.84 |
+| stgnn_mta_qsdrop (robust variant) | 3 | 86.57 ± 0.08 | 23.93 | 47.69 | 80.63 | 110.31 | 136.32 | +16.2% | 97.06 |
+| seq_mta (no graph) | 3 | 88.59 ± 0.04 | 24.38 | 48.52 | 82.29 | 113.01 | 140.07 | +14.2% | 98.82 |
+| lgbm_mta | 1 | 88.87 | 23.90 | 48.47 | 82.58 | 113.53 | 140.75 | +14.0% | 99.06 |
+| lgbm_no_mta | 1 | 90.07 | 24.45 | 49.07 | 83.63 | 115.06 | 142.73 | +12.8% | |
+| mta_cal | – | 103.30 | 34.21 | 59.49 | 94.89 | 129.87 | 161.60 | 0 | |
+| mta (published) | – | 104.07 | 35.41 | 57.82 | 94.24 | 131.47 | 166.46 | −0.7% | 117.85 |
+| hist_avg | – | 109.03 | 29.21 | 59.17 | 102.17 | 140.21 | 170.72 | −5.5% | |
+| rt (real-time profile) | – | 119.78 | 33.03 | 65.40 | 111.34 | 152.90 | 189.44 | −16.0% | |
+| sched | – | 404.04 | 390.14 | 389.60 | 400.44 | 412.10 | 422.57 | −291% | |
+
+Paired Wilcoxon on daily MAE (seed-averaged, 41 days; `BUS_ETA_BOROUGH=brooklyn python -m bus_eta.paired`):
+
+| Comparison | Δ (s) | Days better | p |
+|---|---|---|---|
+| q vs seq (graph gain) | −2.17 | 100% | 9e-13 |
+| q vs lgbm_mta | −2.40 | 100% | 9e-13 |
+| q vs mta | −17.28 | 100% | 9e-13 |
+| q vs stgnn_mta (L1) | −0.02 | 56% | 0.3 (tie) |
+| q vs gwnet | −0.07 | 51% | 0.3 (tie) |
+| q vs qsdrop | −0.11 | 73% | 3e-4 |
+| qsdrop vs gwnet | +0.04 | 34% | 0.02 |
+| gwnet vs seq | −2.10 | 100% | 9e-13 |
+| lgbm_mta vs lgbm_no_mta (MTA input) | −1.11 | 95% | 7e-9 |
+| randsplit lgbm vs q | −0.24 | 68% | 0.009 |
+
+- **The main claims replicate on a second network.** The ranking matches Manhattan:
+  - graph models ≈ GWNet > no graph ≈ LightGBM ≫ MTA > historical average;
+  - the graph gain is 2.17 s (Manhattan 2.35), on 100% of days;
+  - the lead over MTA's published prediction is 16.9% (Manhattan 18.0%);
+  - the gain grows with horizon: −0.4 s at h1, −4.0 s at h16–20 vs no graph.
+- **Weaker than Manhattan:**
+  - The main model's edge over GWNet is a tie (−0.07 s, p = 0.3; Manhattan −0.25 s,
+    p = 8e-5).
+  - The quantile head no longer helps the point MAE (q vs L1: −0.02 s, p = 0.3;
+    Manhattan −0.22 s, p = 1e-8).
+  - This supports §7's wording: the contribution is the protocol, the graph gain,
+    robustness and cold start, not the encoder.
+- **Robust variant:** costs 0.11 s at full coverage (Manhattan 0.46 s).
+- **MTA input:** worth 1.1 s to LightGBM.
+- **Brooklyn errors are about 10 s lower than Manhattan's, despite longer trips.** MTA is
+  also better here (104 vs 118 s), so Brooklyn is not simply an easier dataset.
+- **Random-split pitfall (§5.3) replicates:**
+  - the same LightGBM recipe on a random split scores 86.24 s, versus 88.87 s on the
+    chronological split (2.6 s, 3.0% optimistic);
+  - it now *beats* the main model (−0.24 s, 68% of days, p = 0.009);
+  - the inflation again grows with horizon: −0.05 s at h1, −5.6 s at h16–20;
+  - its training hit the 20,000-round cap without early stopping (best val l1 82.38 at
+    round 19,990).
+
+#### Results: zero-shot transfer, Manhattan → Brooklyn (job 27512)
+Manhattan cold-start checkpoints (trained with held-out routes and spatial ablation, §5.4)
+are scored on Brooklyn with no Brooklyn training: every route and segment is unknown, and
+inputs are scaled with Manhattan's statistics.
+
+| Model (3 seeds, paired daily mean) | MAE (s) | vs mta | vs mta_cal | vs lgbm trained on Brooklyn | vs q trained on Brooklyn |
+|---|---|---|---|---|---|
+| xfer seq_mta_ho_abl (no graph) | **94.90** | **−8.49** (98% of days) | −7.78 | +6.74 | +9.14 |
+| xfer v2ind_ho_abl (inductive graph) | 95.20 | −8.08 (98%) | −7.37 | +7.04 | +9.44 |
+| xfer v2indqsd_ho_abl (+ obs. dropout) | 95.59 | | | | |
+
+All Δ have p ≤ 3e-12. Seed 0 of each on the common support: 95.45, 95.75 and 96.49 s.
+
+- **Zero-shot transfer works:**
+  - with no Brooklyn training, the Manhattan models beat MTA's own Brooklyn predictions
+    by 8.5 s (8.2%) on 98% of days;
+  - they beat the calibrated MTA baseline on 100% of days;
+  - this is about half of the 17.3 s that training on Brooklyn gains over MTA.
+- **Brooklyn training is still worth 9 s.** The same architecture trained on Brooklyn
+  reaches 85.8 s, and even Brooklyn-trained LightGBM beats the transferred models by
+  6.7–7.0 s.
+- **The inductive graph does not transfer better than no graph:**
+  - it is 0.30 s worse than the transferred no-graph model (24% of days, p = 5e-4);
+  - observation dropout costs another 0.39 s;
+  - it is only better at h1 (25.6 vs 25.9 s), where the live state of the next segment
+    matters most.
+  - So the encoder's cold-start gain within Manhattan (§5.4) does not carry across
+    networks. The likely cause: the network state's scale and coverage differ (two
+    networks with a 2× node count), and the segment attributes shift (bus lanes 31% →
+    10% of segments).
+- **Paper point:** a model trained in one borough is a usable day-one predictor for
+  another, better than the operator's. The graph's benefit needs local training.
 
 ## 6. Related work notes (papers in `research papers/`, kept local, not in git)
 
@@ -923,7 +1021,8 @@ scored on Brooklyn).
 | Li et al. 2018 (DCRNN); Wu et al. 2019 (Graph WaveNet) | Standard spatio-temporal graph baselines | Implemented as encoders (§4) |
 
 ## 7. Limitations (to state in the paper)
-- One city, and one 7-month period. The test period is autumn only.
+- Two boroughs of one city (Manhattan; Brooklyn replicates, §5.10), one 7-month period.
+  The test period is autumn only.
 - The ground truth depends on GPS ping density: 4% of labels have a gap > 60 s.
 - The main model's lead over Graph WaveNet is small (0.25 s; 0.34 s when GWNet gets the
   same quantile head, which doesn't help it). The L1 versions tie. The contribution is
@@ -1073,7 +1172,9 @@ Issues found (none changes a conclusion; no rerun):
 - [x] GWNet with the quantile head, 3 seeds (2026-10-18, job 27485): 96.95 s, slightly
   worse than GWNet with L1; the main model beats it by 0.34 s (§4 finding 4).
 - [ ] Optional: GWNet trained with observation dropout.
-- [ ] Second borough (deferred by the user 2026-10-16; Queens or Brooklyn, whichever is
+- [x] Second borough: Brooklyn (2026-10-18 → 20, branch `brooklyn`). Replication and zero-shot
+  transfer are done (§5.10). Still to come: robustness, permutation and conformal on Brooklyn.
+  Background (2026-10-16, Queens or Brooklyn, whichever is
   better). Checked feasible: the archive has Brooklyn's 57 local/SBS routes (about 1.5×
   Manhattan's pings per day), and parquet.gtfsrt.io `schedules/` stores every borough's
   static feed versions (Brooklyn: Feb 26, Mar 28, Apr 9, Jun 24, Sep 3), with 92–95% RT
