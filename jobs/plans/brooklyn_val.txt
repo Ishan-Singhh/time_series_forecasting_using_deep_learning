@@ -1,0 +1,9 @@
+# Validation-month predictions of the Brooklyn quantile models, for conformal recalibration:
+#   qsub -v PLAN=jobs/plans/brooklyn_val.txt,BUS_ETA_BOROUGH=brooklyn jobs/stgnn.pbs
+#   BUS_ETA_BOROUGH=brooklyn python -m bus_eta.conformal --models stgnn_mta_q stgnn_mta_q_s1 stgnn_mta_q_s2
+stgnn_mta_q_val 0 --eval-only stgnn_mta_q --split val
+stgnn_mta_q_s1_val 1 --eval-only stgnn_mta_q_s1 --split val
+stgnn_mta_q_s2_val 2 --eval-only stgnn_mta_q_s2 --split val
+stgnn_mta_qsdrop_val 0 --eval-only stgnn_mta_qsdrop --split val
+stgnn_mta_qsdrop_s1_val 1 --eval-only stgnn_mta_qsdrop_s1 --split val
+stgnn_mta_qsdrop_s2_val 2 --eval-only stgnn_mta_qsdrop_s2 --split val
